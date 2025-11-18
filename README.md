@@ -8,7 +8,7 @@
 ## 安装
 
 # 克隆项目
-git clone https://github.com/baipi-c/WebScanner
+git clone https://github.com/baipi-c/Baipi-s-DVWAScanner
 
 # 安装依赖
 pip install -r requirements.txt
