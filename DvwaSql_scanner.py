@@ -1,4 +1,3 @@
-
 import sys
 import os
 import requests
@@ -10,6 +9,7 @@ import re
 import urllib3
 from typing import Dict, List, Tuple, Optional, Any
 from colorama import Fore, init
+from datetime import datetime  # 添加这行导入
 
 # ========== 配置相对路径 ==========
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -75,26 +75,26 @@ class IntegratedSQLScanner:
         # 数据库指纹特征（正则表达式，用于更精确匹配）
         self.db_fingerprints = {
             'mysql': [
-                r'you have an error in your sql syntax', 
+                r'you have an error in your sql syntax',
                 r'check the manual that corresponds to your mysql server version',
                 r'mysql'
             ],
             'mssql': [
-                r'microsoft (?:sql )?server', 
-                r'victim of odbc', 
-                r'odbc driver', 
-                r'unclosed quotation mark', 
+                r'microsoft (?:sql )?server',
+                r'victim of odbc',
+                r'odbc driver',
+                r'unclosed quotation mark',
                 r'closed quotation mark'
             ],
             'oracle': [
-                r'ora-\d{5}', 
-                r'oracle error', 
-                r'pl/sql', 
+                r'ora-\d{5}',
+                r'oracle error',
+                r'pl/sql',
                 r'oracle'
             ],
             'postgresql': [
-                r'error: syntax error at or near', 
-                r'postgresql', 
+                r'error: syntax error at or near',
+                r'postgresql',
                 r'pg_'
             ]
         }
@@ -516,7 +516,9 @@ def main():
         report_dir = os.path.join(CURRENT_DIR, 'scan_result', 'sql_scanner')
         os.makedirs(report_dir, exist_ok=True)  # 自动创建目录（如果不存在）
 
-        filename = f"dvwa_sql_scan_report_{int(time.time())}.json"
+        # 修改：使用可读的时间格式生成文件名
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"dvwa_sql_scan_report_{timestamp}.json"
         filepath = os.path.join(report_dir, filename)
 
         with open(filepath, 'w', encoding='utf-8') as f:

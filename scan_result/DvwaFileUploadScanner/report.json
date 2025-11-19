@@ -1,6 +1,0 @@
-{
-    "target": "http://192.168.26.130:8085",
-    "vulnerable": true,
-    "uploaded_file": "http://192.168.26.130:8085/hackable/uploads/backdoor.php",
-    "message": "文件上传漏洞存在，可访问上传文件"
-}

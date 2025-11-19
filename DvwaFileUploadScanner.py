@@ -4,13 +4,16 @@ import json
 import sys
 from urllib.parse import urljoin
 from colorama import Fore
+from datetime import datetime
 
 try:
     from DVWAlogin import DvwaLogin
+
     print(f"{Fore.GREEN}[INFO] 成功导入DVWA登录模块")
 except Exception as e:
     print(f"{Fore.RED}[ERROR] 无法导入DVWA登录模块: {e}")
     sys.exit(1)
+
 
 class DvwaFileUploadScanner:
     def __init__(self, session, base_url):
@@ -35,17 +38,27 @@ class DvwaFileUploadScanner:
             if match:
                 filename = os.path.basename(match.group(1))
                 return filename
-        print("⚠ 提取文件名失败，使用默认文件名 backdoor.php")
+        print("提取文件名失败，使用默认文件名 backdoor.php")
         return "backdoor.php"
 
     def save_report(self, vulnerable, file_url, message):
+        # 获取当前时间并格式化（文件名使用安全格式）
+        current_time = datetime.now()
+        report_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
+        file_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")  # 文件名中不能包含冒号
+
         report = {
             "target": self.base_url,
             "vulnerable": vulnerable,
             "uploaded_file": file_url,
-            "message": message
+            "message": message,
+            "report_time": report_time  # 报告中显示可读时间
         }
-        report_path = os.path.join(self.report_dir, "report.json")
+
+        # 生成带时间戳的文件名
+        report_filename = f"report_{file_time}.json"
+        report_path = os.path.join(self.report_dir, report_filename)
+
         with open(report_path, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=4, ensure_ascii=False)
         print(f"✓ 扫描报告已生成: {report_path}")
@@ -103,6 +116,7 @@ class DvwaFileUploadScanner:
         except Exception as e:
             self.save_report(False, "", f"扫描过程中发生异常: {e}")
 
+
 def main():
     print("=" * 50)
     print("    DVWA 文件上传漏洞扫描程序")
@@ -124,6 +138,7 @@ def main():
 
     scanner = DvwaFileUploadScanner(session_info['session'], session_info['base_url'])
     scanner.detect()
+
 
 if __name__ == "__main__":
     main()

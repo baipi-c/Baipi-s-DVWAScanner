@@ -36,7 +36,7 @@ def start_scan():
 
     def run_main_py():
         try:
-            # ✅ 不再处理 cookie，统一走 URL + 交互式输入
+            #  不再处理 cookie，统一走 URL + 交互式输入
             if scanner_choice == "6":
                 inputs = [dvwa_url, "6", "yes", "0"]
             else:

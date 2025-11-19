@@ -10,6 +10,7 @@ import html
 from typing import Dict, List, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from colorama import Fore,  init
+from datetime import datetime  # 添加这行导入
 
 # ========== 配置区域 (相对路径版) ==========
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -333,8 +334,9 @@ def main():
         # 确保报告目录存在
         os.makedirs(REPORT_DIR, exist_ok=True)
 
-        # 生成文件名
-        filename = f"dvwa_xss_report_{int(time.time())}.json"
+        # 修改：生成带时间戳的文件名
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"dvwa_xss_report_{timestamp}.json"
         filepath = os.path.join(REPORT_DIR, filename)
 
         with open(filepath, 'w', encoding='utf-8') as f:

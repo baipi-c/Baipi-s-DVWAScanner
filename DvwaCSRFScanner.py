@@ -10,8 +10,9 @@ import string
 from urllib.parse import urljoin
 import urllib3
 from bs4 import BeautifulSoup
-from typing import Dict,  Tuple, Optional, Any
-from colorama import Fore,  init
+from typing import Dict, Tuple, Optional, Any
+from colorama import Fore, init
+from datetime import datetime  # 确保已导入
 
 # ========== 配置相对路径 ==========
 CURRENT_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -285,13 +286,17 @@ class DvwaCSRFScanner:
         except Exception as e:
             return {'vulnerable': False, 'reason': f'异常: {e}'}
 
-        # 移除 finally 中的自动回滚，改为外部控制
-
     def generate_poc_html(self, vuln):
-        """生成POC HTML文件到指定目录"""
+        """生成POC HTML文件到指定目录，文件名包含时间戳"""
+        # 生成时间戳和随机字符串
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         random_str = ''.join(random.choices(string.ascii_lowercase, k=6))
+
+        # 构建文件名：csrf_poc_{level}_{timestamp}_{random_str}.html
+        filename = f"csrf_poc_{vuln['level']}_{timestamp}_{random_str}.html"
+
         # 使用绝对路径保存文件
-        abs_filename = os.path.join(self.report_dir, f"csrf_poc_{vuln['level']}_{random_str}.html")
+        abs_filename = os.path.join(self.report_dir, filename)
         # 生成相对路径用于显示
         rel_filename = os.path.relpath(abs_filename, CURRENT_SCRIPT_DIR)
 
@@ -482,7 +487,9 @@ def main():
             print(f"{Fore.YELLOW}[*] 当前密码应为: baipi666")
 
         # 保存报告到指定目录
-        abs_report_path = os.path.join(scanner.report_dir, f"dvwa_csrf_report_{int(time.time())}.json")
+        # 修改：使用可读的时间格式生成文件名
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        abs_report_path = os.path.join(scanner.report_dir, f"dvwa_csrf_report_{timestamp}.json")
         rel_report_path = os.path.relpath(abs_report_path, CURRENT_SCRIPT_DIR)
 
         print(f"{Fore.CYAN}[调试] 报告绝对路径: {abs_report_path}")  # 调试信息
