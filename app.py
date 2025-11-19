@@ -10,22 +10,20 @@ import re
 from flask import Flask, request, jsonify, send_from_directory, Response
 
 app = Flask(__name__, static_folder='static')
-
-# ANSI 转义序列正则（用于清除颜色代码）
 ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
-
 task_queues = {}
+
 
 @app.route('/')
 def index():
     return send_from_directory('static', 'index.html')
+
 
 @app.route('/start_scan', methods=['POST'])
 def start_scan():
     data = request.json
     dvwa_url = data.get('url', '').strip()
     scanner_choice = data.get('scanner')
-    cookie = data.get('cookie', '').strip()
 
     if not dvwa_url or not dvwa_url.endswith('/'):
         return jsonify({'error': 'DVWA URL 必须以 / 结尾'}), 400
@@ -38,31 +36,17 @@ def start_scan():
 
     def run_main_py():
         try:
-            if cookie:
-                config = {
-                    "dvwa_url": dvwa_url,
-                    "username": "admin",
-                    "password": "password"
-                }
-                config_dir = os.path.join(os.path.dirname(__file__), 'config')
-                os.makedirs(config_dir, exist_ok=True)
-                with open(os.path.join(config_dir, 'config.json'), 'w', encoding='utf-8') as f:
-                    json.dump(config, f, ensure_ascii=False)
-                if scanner_choice == "6":
-                    inputs = ["6", "yes", "0"]
-                else:
-                    inputs = [scanner_choice, "0"]
+            # ✅ 不再处理 cookie，统一走 URL + 交互式输入
+            if scanner_choice == "6":
+                inputs = [dvwa_url, "6", "yes", "0"]
             else:
-                if scanner_choice == "6":
-                    inputs = [dvwa_url, "6", "yes", "0"]
-                else:
-                    inputs = [dvwa_url, scanner_choice, "0"]
+                inputs = [dvwa_url, scanner_choice, "0"]
 
             input_str = '\n'.join(inputs) + '\n'
 
             env = os.environ.copy()
             env['PYTHONIOENCODING'] = 'utf-8'
-            env['COLORAMA_DISABLE'] = '1'  # 尝试禁用 colorama（辅助）
+            env['COLORAMA_DISABLE'] = '1'
 
             proc = subprocess.Popen(
                 [sys.executable, 'main.py'],
@@ -81,10 +65,9 @@ def start_scan():
 
             for line in iter(proc.stdout.readline, ''):
                 if line:
-                    # 清理 ANSI 颜色码并去除末尾空白
                     clean_line = ansi_escape.sub('', line).rstrip()
                     msg_queue.put(clean_line)
-            
+
             proc.wait()
 
             report_links = []
@@ -116,6 +99,7 @@ def start_scan():
 
     return jsonify({'task_id': task_id})
 
+
 @app.route('/stream/<task_id>')
 def stream(task_id):
     def generate():
@@ -137,7 +121,8 @@ def stream(task_id):
 
     return Response(generate(), mimetype='text/event-stream')
 
+
 if __name__ == '__main__':
-    print("🚀 Web 漏洞扫描器已启动（无进度条 + 无 ANSI 颜色码）")
+    print("🚀 Web 漏洞扫描器已启动（无 Cookie + 无 ANSI + 无进度条）")
     print("🌐 访问 http://localhost:5000")
     app.run(host='0.0.0.0', port=5000, threaded=True)

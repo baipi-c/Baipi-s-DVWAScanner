@@ -7,17 +7,23 @@
 
 ## 安装
 
-# 克隆项目
+### 克隆项目
 git clone https://github.com/baipi-c/Baipi-s-DVWAScanner
 
-# 安装依赖
+### 安装依赖
 pip install -r requirements.txt
 
-# 后续更新
+### 后续更新
 先添加该项目为上游仓库：
 git remote add upstream https://github.com/baipi-c/Baipi-s-DVWAScanner
+
 获取最新信息：
 git fetch upstream
+
+## 运行
+在终端运行app.py，得到一个网址，访问，然后在网页上进行扫描操作（这是一个本地网页）
+#### 或
+在终端运行main.py，然后在控制台进行扫描操作
 
 ## 温馨提示
 该程序有很多问题，如果遇到了请私信我，不保证解决

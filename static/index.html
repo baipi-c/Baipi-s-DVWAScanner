@@ -151,8 +151,6 @@
       background: var(--primary-light);
     }
 
-    /* === 进度条已完全移除 === */
-
     .terminal-header {
       display: flex;
       align-items: center;
@@ -258,10 +256,7 @@
             <input type="text" id="dvwaUrl" placeholder="http://172.19.109.198:8085/" value="http://172.19.109.198:8085/">
           </div>
 
-          <div class="form-group">
-            <label for="cookie"><i class="fas fa-cookie"></i> Cookie（可选）</label>
-            <input type="text" id="cookie" placeholder="PHPSESSID=abc123; security=low">
-          </div>
+          <!-- ✅ Cookie 输入框已完全移除 -->
 
           <div class="form-group">
             <label for="scannerType"><i class="fas fa-bug"></i> 扫描类型</label>
@@ -274,8 +269,6 @@
               <option value="6">全部扫描</option>
             </select>
           </div>
-
-          <!-- 进度条区域已删除 -->
 
           <div class="btn-group">
             <button id="startBtn" onclick="startScan()">
@@ -316,7 +309,6 @@
   <script>
     let eventSource = null;
 
-    // 历史记录功能（不变）
     function loadHistory() {
       const history = JSON.parse(localStorage.getItem('scanHistory') || '[]');
       renderHistory(history);
@@ -348,7 +340,6 @@
       `).join('');
     }
 
-    // 日志输出（简化：不再处理进度）
     function appendOutput(text, className = '') {
       const output = document.getElementById('output');
       const line = document.createElement('div');
@@ -374,7 +365,6 @@
 
     function startScan() {
       const url = document.getElementById('dvwaUrl').value.trim();
-      const cookie = document.getElementById('cookie').value.trim();
       const scanner = document.getElementById('scannerType').value;
       const btn = document.getElementById('startBtn');
 
@@ -383,17 +373,17 @@
         return;
       }
 
-      // 不再初始化进度相关变量
       clearReports();
       btn.disabled = true;
       btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 扫描中...';
       clearOutput();
       appendOutput('[SYSTEM] 正在启动扫描引擎...', 'info');
 
+      // ✅ 不再发送 cookie 字段
       fetch('/start_scan', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ url, scanner, cookie })
+        body: JSON.stringify({ url, scanner })  // ← 移除了 cookie
       })
       .then(res => res.json())
       .then(data => {
