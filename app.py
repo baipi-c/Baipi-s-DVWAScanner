@@ -6,17 +6,19 @@ import threading
 import queue
 import json
 import glob
+import re
 from flask import Flask, request, jsonify, send_from_directory, Response
 
 app = Flask(__name__, static_folder='static')
 
-task_queues = {}
+# ANSI 转义序列正则（用于清除颜色代码）
+ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 
+task_queues = {}
 
 @app.route('/')
 def index():
     return send_from_directory('static', 'index.html')
-
 
 @app.route('/start_scan', methods=['POST'])
 def start_scan():
@@ -60,7 +62,7 @@ def start_scan():
 
             env = os.environ.copy()
             env['PYTHONIOENCODING'] = 'utf-8'
-            env['COLORAMA_DISABLE'] = '1'
+            env['COLORAMA_DISABLE'] = '1'  # 尝试禁用 colorama（辅助）
 
             proc = subprocess.Popen(
                 [sys.executable, 'main.py'],
@@ -79,8 +81,10 @@ def start_scan():
 
             for line in iter(proc.stdout.readline, ''):
                 if line:
-                    msg_queue.put(line.rstrip())
-
+                    # 清理 ANSI 颜色码并去除末尾空白
+                    clean_line = ansi_escape.sub('', line).rstrip()
+                    msg_queue.put(clean_line)
+            
             proc.wait()
 
             report_links = []
@@ -112,7 +116,6 @@ def start_scan():
 
     return jsonify({'task_id': task_id})
 
-
 @app.route('/stream/<task_id>')
 def stream(task_id):
     def generate():
@@ -134,8 +137,7 @@ def stream(task_id):
 
     return Response(generate(), mimetype='text/event-stream')
 
-
 if __name__ == '__main__':
-    print("🚀 Web 漏洞扫描器已启动（无进度条版）")
+    print("🚀 Web 漏洞扫描器已启动（无进度条 + 无 ANSI 颜色码）")
     print("🌐 访问 http://localhost:5000")
     app.run(host='0.0.0.0', port=5000, threaded=True)
