@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Web 漏洞扫描器</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-light: #dbeafe;
+      --success: #059669;
+      --error: #dc2626;
+      --gray-100: #f9fafb;
+      --gray-200: #e2e8f0;
+      --gray-600: #475569;
+      --gray-800: #1e293b;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+    }
+
+    body {
+      background-color: var(--gray-100);
+      color: var(--gray-800);
+      line-height: 1.6;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 24px 0;
+      border-bottom: 1px solid var(--gray-200);
+      margin-bottom: 24px;
+    }
+
+    .logo {
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(135deg, var(--primary), #1d4ed8);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 24px;
+    }
+
+    .header-text h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 4px;
+    }
+
+    .subtitle {
+      color: var(--gray-600);
+      font-size: 1rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 24px;
+    }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      border: 1px solid var(--gray-200);
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: var(--gray-800);
+    }
+
+    input, select {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid var(--gray-200);
+      border-radius: 8px;
+      background: white;
+      color: var(--gray-800);
+      font-size: 1rem;
+      outline: none;
+    }
+
+    input:focus, select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    button {
+      flex: 1;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    #startBtn {
+      background-color: var(--primary);
+      color: white;
+      border: none;
+    }
+
+    #startBtn:hover:not(:disabled) {
+      background-color: #1d4ed8;
+    }
+
+    #clearBtn {
+      background: white;
+      color: var(--primary);
+      border: 1px solid var(--gray-200);
+    }
+
+    #clearBtn:hover {
+      border-color: var(--primary);
+      background: var(--primary-light);
+    }
+
+    /* === 进度条已完全移除 === */
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 16px;
+      font-weight: 600;
+      color: var(--gray-600);
+    }
+
+    #output {
+      background-color: #f8fafc;
+      border: 1px solid var(--gray-200);
+      border-radius: 8px;
+      padding: 16px;
+      height: 360px;
+      overflow-y: auto;
+      font-family: 'Consolas', monospace;
+      font-size: 13px;
+      color: var(--gray-800);
+    }
+
+    .line {
+      margin-bottom: 4px;
+      white-space: pre-wrap;
+    }
+
+    .info { color: #0d9488; }
+    .error { color: var(--error); font-weight: 600; }
+    .highlight { color: var(--primary); font-weight: 600; }
+    .success { color: var(--success); }
+
+    .reports {
+      margin-top: 16px;
+    }
+
+    .report-link {
+      display: inline-block;
+      margin-top: 6px;
+      color: var(--primary);
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+
+    .report-link:hover {
+      text-decoration: underline;
+    }
+
+    .history-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: var(--gray-800);
+    }
+
+    .history-list {
+      max-height: 600px;
+      overflow-y: auto;
+    }
+
+    .history-item {
+      padding: 12px;
+      border-bottom: 1px solid var(--gray-200);
+      font-size: 0.9rem;
+    }
+
+    .history-item:last-child {
+      border-bottom: none;
+    }
+
+    .history-time {
+      color: var(--gray-600);
+      font-size: 0.8rem;
+      margin-top: 4px;
+    }
+
+    .history-status.success { color: var(--success); }
+    .history-status.error { color: var(--error); }
+
+    footer {
+      text-align: center;
+      margin-top: 24px;
+      color: var(--gray-600);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">
+        <i class="fas fa-bug"></i>
+      </div>
+      <div class="header-text">
+        <h1>Web 漏洞扫描器</h1>
+        <p class="subtitle">自动化漏洞检测 · 实时输出 · 报告生成</p>
+      </div>
+    </header>
+
+    <div class="layout">
+      <div>
+        <div class="card">
+          <div class="form-group">
+            <label for="dvwaUrl"><i class="fas fa-link"></i> DVWA 地址（必须以 / 结尾）</label>
+            <input type="text" id="dvwaUrl" placeholder="http://172.19.109.198:8085/" value="http://172.19.109.198:8085/">
+          </div>
+
+          <div class="form-group">
+            <label for="cookie"><i class="fas fa-cookie"></i> Cookie（可选）</label>
+            <input type="text" id="cookie" placeholder="PHPSESSID=abc123; security=low">
+          </div>
+
+          <div class="form-group">
+            <label for="scannerType"><i class="fas fa-bug"></i> 扫描类型</label>
+            <select id="scannerType">
+              <option value="1">SQL 注入</option>
+              <option value="2">XSS 反射型</option>
+              <option value="3">CSRF</option>
+              <option value="4">命令注入</option>
+              <option value="5">文件上传</option>
+              <option value="6">全部扫描</option>
+            </select>
+          </div>
+
+          <!-- 进度条区域已删除 -->
+
+          <div class="btn-group">
+            <button id="startBtn" onclick="startScan()">
+              <i class="fas fa-play-circle"></i> 开始扫描
+            </button>
+            <button id="clearBtn" onclick="clearOutput()">
+              <i class="fas fa-trash-alt"></i> 清空
+            </button>
+          </div>
+
+          <div class="reports" id="reportsContainer"></div>
+        </div>
+
+        <div class="card">
+          <div class="terminal-header">
+            <i class="fas fa-terminal"></i>
+            <span>实时日志</span>
+          </div>
+          <div id="output"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="history-title">近期任务</div>
+          <div class="history-list" id="historyList">
+            <p style="color:#94a3b8; font-size:0.9rem;">暂无历史记录</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <p>© 2025 Web 漏洞扫描器 · 安全研究专用</p>
+    </footer>
+  </div>
+
+  <script>
+    let eventSource = null;
+
+    // 历史记录功能（不变）
+    function loadHistory() {
+      const history = JSON.parse(localStorage.getItem('scanHistory') || '[]');
+      renderHistory(history);
+    }
+
+    function saveToHistory(task) {
+      const history = JSON.parse(localStorage.getItem('scanHistory') || '[]');
+      history.unshift(task);
+      if (history.length > 10) history.length = 10;
+      localStorage.setItem('scanHistory', JSON.stringify(history));
+      renderHistory(history);
+    }
+
+    function renderHistory(history) {
+      const list = document.getElementById('historyList');
+      if (history.length === 0) {
+        list.innerHTML = '<p style="color:#94a3b8; font-size:0.9rem;">暂无历史记录</p>';
+        return;
+      }
+      list.innerHTML = history.map(item => `
+        <div class="history-item">
+          <div><strong>${item.type}</strong></div>
+          <div>${item.url}</div>
+          <div class="history-time">
+            ${new Date(item.time).toLocaleString()} ·
+            <span class="history-status ${item.status}">${item.status === 'success' ? '成功' : '失败'}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // 日志输出（简化：不再处理进度）
+    function appendOutput(text, className = '') {
+      const output = document.getElementById('output');
+      const line = document.createElement('div');
+      line.className = `line ${className}`;
+      line.textContent = text;
+      output.appendChild(line);
+      output.scrollTop = output.scrollHeight;
+    }
+
+    function addReportLink(path) {
+      const container = document.getElementById('reportsContainer');
+      const link = document.createElement('a');
+      link.href = `/${path}`;
+      link.target = "_blank";
+      link.className = 'report-link';
+      link.innerHTML = `<i class="fas fa-file-download"></i> 下载报告: ${path.split('/').pop()}`;
+      container.appendChild(link);
+    }
+
+    function clearReports() {
+      document.getElementById('reportsContainer').innerHTML = '';
+    }
+
+    function startScan() {
+      const url = document.getElementById('dvwaUrl').value.trim();
+      const cookie = document.getElementById('cookie').value.trim();
+      const scanner = document.getElementById('scannerType').value;
+      const btn = document.getElementById('startBtn');
+
+      if (!url || !url.endsWith('/')) {
+        alert('⚠️ URL 必须以 / 结尾！');
+        return;
+      }
+
+      // 不再初始化进度相关变量
+      clearReports();
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 扫描中...';
+      clearOutput();
+      appendOutput('[SYSTEM] 正在启动扫描引擎...', 'info');
+
+      fetch('/start_scan', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ url, scanner, cookie })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          appendOutput(`[ERROR] ${data.error}`, 'error');
+          saveToHistory({
+            url, type: getScannerName(scanner),
+            time: Date.now(),
+            status: 'error'
+          });
+          resetButton();
+          return;
+        }
+
+        eventSource = new EventSource(`/stream/${data.task_id}`);
+        let hasError = false;
+
+        eventSource.onmessage = function(event) {
+          const msg = JSON.parse(event.data);
+          if (msg.end) {
+            eventSource.close();
+            resetButton();
+            saveToHistory({
+              url, type: getScannerName(scanner),
+              time: Date.now(),
+              status: hasError ? 'error' : 'success'
+            });
+            return;
+          }
+          if (msg.line) {
+            let cls = '';
+            const line = msg.line;
+            if (line.startsWith('[REPORTS]')) {
+              try {
+                const reports = JSON.parse(line.substring(9));
+                reports.forEach(addReportLink);
+                return;
+              } catch (e) {}
+            }
+            if (line.includes('[INFO]') || line.includes('成功') || line.includes('✓')) cls = 'info';
+            else if (line.includes('[ERROR]') || line.includes('失败') || line.includes('✗') || line.includes('EOFError')) {
+              cls = 'error';
+              hasError = true;
+            }
+            else if (line.includes('发现') || line.includes('Payload') || line.includes('漏洞') || line.includes('Found')) cls = 'highlight';
+            appendOutput(line, cls);
+          }
+        };
+
+        eventSource.onerror = function() {
+          appendOutput('[SYSTEM] 连接异常，请重试。', 'error');
+          eventSource.close();
+          resetButton();
+          saveToHistory({
+            url, type: getScannerName(scanner),
+            time: Date.now(),
+            status: 'error'
+          });
+        };
+      })
+      .catch(err => {
+        appendOutput(`[SYSTEM] 启动失败: ${err.message}`, 'error');
+        resetButton();
+        saveToHistory({
+          url, type: getScannerName(scanner),
+          time: Date.now(),
+          status: 'error'
+        });
+      });
+    }
+
+    function getScannerName(choice) {
+      const names = {
+        "1": "SQL 注入",
+        "2": "XSS 反射型",
+        "3": "CSRF",
+        "4": "命令注入",
+        "5": "文件上传",
+        "6": "全部扫描"
+      };
+      return names[choice] || choice;
+    }
+
+    function resetButton() {
+      const btn = document.getElementById('startBtn');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-play-circle"></i> 开始扫描';
+    }
+
+    function clearOutput() {
+      document.getElementById('output').innerHTML = '';
+    }
+
+    window.addEventListener('beforeunload', () => {
+      if (eventSource) eventSource.close();
+    });
+
+    window.onload = () => {
+      loadHistory();
+      appendOutput('欢迎使用 Web 漏洞扫描器！', 'info');
+      appendOutput('请输入 DVWA 地址并选择扫描类型开始检测。', 'info');
+    };
+  </script>
+</body>
+</html>

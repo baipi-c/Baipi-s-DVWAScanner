@@ -13,7 +13,11 @@ git clone https://github.com/baipi-c/Baipi-s-DVWAScanner
 # 安装依赖
 pip install -r requirements.txt
 
+# 后续更新
+先添加该项目为上游仓库：
+git remote add upstream https://github.com/baipi-c/Baipi-s-DVWAScanner
+获取最新信息：
+git fetch upstream
 
 ## 温馨提示
 该程序有很多问题，如果遇到了请私信我，不保证解决
-6
