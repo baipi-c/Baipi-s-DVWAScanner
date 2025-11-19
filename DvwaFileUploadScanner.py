@@ -71,9 +71,22 @@ class DvwaFileUploadScanner:
                 return
 
             # 检测成功提示
-            success_indicators = ["successfully uploaded", "succesfully uploaded"]
+            success_indicators = [
+                "successfully uploaded",
+                "succesfully uploaded",
+                "has been uploaded",
+                "file uploaded",
+                "uploaded"
+            ]
             if not any(indicator in res.text.lower() for indicator in success_indicators):
-                self.save_report(False, "", f"上传失败，响应中未包含成功提示\n{res.text[:200]}")
+                uploaded_name = self.extract_filename(res.text)
+                file_url = urljoin(self.upload_dir, uploaded_name)
+
+                verify = self.session.get(file_url)
+                if verify.status_code == 200:
+                    self.save_report(True, file_url, "文件上传成功（无成功提示但可访问）")
+                else:
+                    self.save_report(False, "", "上传失败，响应中无成功提示，且文件不存在")
                 return
 
             # 提取文件名
