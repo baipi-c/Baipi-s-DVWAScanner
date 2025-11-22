@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Web 漏洞扫描器</title>
+    <style>
+        /* ... 你的原有 CSS 完全不变 ... */
+        * { box-sizing: border-box; }
+        body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background-color: #f9fbfd; color: #333; margin: 0; padding: 0; }
+        .container { display: flex; max-width: 1600px; margin: 0 auto; padding: 20px; gap: 20px; }
+        .main-panel { flex: 1; background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0, 60, 130, 0.1); padding: 24px; min-width: 0; }
+        .sidebar { width: 320px; background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0, 60, 130, 0.1); padding: 20px; height: fit-content; max-height: calc(100vh - 40px); overflow-y: auto; position: sticky; top: 20px; }
+        h1 { color: #003c82; text-align: center; font-size: 28px; margin-bottom: 8px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 24px; font-size: 16px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; color: #003c82; }
+        input[type="text"] { width: 100%; padding: 12px; border: 2px solid #d0e0ff; border-radius: 8px; font-size: 16px; outline: none; transition: border-color 0.3s; }
+        input[type="text"]:focus { border-color: #0052cc; box-shadow: 0 0 0 3px rgba(0, 82, 204, 0.15); }
+        .scan-types { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+        .scan-types label { display: flex; align-items: center; cursor: pointer; font-weight: normal; color: #0052cc; }
+        .scan-types input[type="checkbox"] { margin-right: 6px; accent-color: #0052cc; }
+        .btn-group { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+        button { background-color: #0052cc; color: white; border: none; padding: 11px 22px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; transition: all 0.2s; box-shadow: 0 2px 6px rgba(0, 82, 204, 0.3); }
+        button:hover { background-color: #003d99; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0, 82, 204, 0.4); }
+        .log-area { background-color: #f0f7ff; border: 1px solid #cce5ff; border-radius: 8px; padding: 16px; font-family: Consolas, monospace; font-size: 14px; line-height: 1.5; height: 200px; overflow-y: auto; white-space: pre-wrap; color: #003366; margin-top: 16px; }
+        .report-section { margin-top: 24px; }
+        .report-section h2 { color: #0052cc; margin-bottom: 12px; }
+        #report { background: white; border: 1px solid #e0eaff; border-radius: 8px; padding: 16px; font-family: Consolas, monospace; font-size: 13px; white-space: pre; overflow-x: auto; max-height: 300px; }
+        .sidebar h2 { color: #0052cc; margin-top: 0; font-size: 20px; }
+        .history-item { padding: 12px; border-bottom: 1px solid #eee; font-size: 13px; cursor: pointer; border-radius: 6px; transition: background 0.2s; }
+        .history-item:hover { background-color: #f0f7ff; }
+        .history-item strong { color: #003c82; display: block; margin-bottom: 4px; }
+        .history-time { color: #666; font-size: 12px; }
+        .history-url { color: #0052cc; font-size: 12px; word-break: break-all; }
+        @media (max-width: 1100px) {
+            .container { flex-direction: column; }
+            .sidebar { position: static; width: 100%; max-height: 400px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="main-panel">
+            <h1>Web 漏洞扫描器</h1>
+            <p class="subtitle">自动化漏洞检测 · 实时输出 · 报告生成</p>
+
+            <div class="form-group">
+                <label for="target">DVWA 地址（必须以 / 结尾）</label>
+                <input type="text" id="target" name="target" placeholder="例如: http://127.0.0.1:8080/dvwa/" value="http://172.19.109.198:8085/">
+            </div>
+
+            <div class="scan-types">
+                <label><input type="checkbox" name="scan_type" value="SQL 注入"> SQL 注入</label>
+                <label><input type="checkbox" name="scan_type" value="XSS 反射型"> XSS 反射型</label>
+                <label><input type="checkbox" name="scan_type" value="CSRF"> CSRF</label>
+                <label><input type="checkbox" name="scan_type" value="命令注入"> 命令注入</label>
+                <label><input type="checkbox" name="scan_type" value="文件上传"> 文件上传</label>
+                <label><input type="checkbox" name="scan_type" value="全部扫描"> 全部扫描</label>
+            </div>
+
+            <div class="btn-group">
+                <button onclick="startScan()">开始扫描</button>
+                <button onclick="clearLog()">清空实时日志</button>
+            </div>
+
+            <div class="log-area" id="log"></div>
+
+            <div class="report-section">
+                <h2>📄 本次扫描报告</h2>
+                <pre id="report">扫描完成后将在此显示 JSON 报告...</pre>
+            </div>
+
+            <footer style="text-align: center; margin-top: 30px; color: #888; font-size: 14px;">
+                © 2025 Web 漏洞扫描器 · 安全研究专用
+            </footer>
+        </div>
+
+        <div class="sidebar">
+            <h2>🕒 扫描历史</h2>
+            <div id="history-list">
+                <p>暂无历史记录</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+
+        function startScan() {
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            const target = document.getElementById('target').value.trim();
+            if (!target.endsWith('/')) {
+                alert('DVWA 地址必须以 / 结尾！');
+                return;
+            }
+
+            const checkboxes = document.querySelectorAll('input[name="scan_type"]:checked');
+            const scanTypes = Array.from(checkboxes).map(cb => cb.value);
+
+            if (scanTypes.length === 0) {
+                alert('请至少选择一种扫描类型！');
+                return;
+            }
+
+            document.getElementById('log').textContent = '';
+            document.getElementById('report').textContent = '扫描进行中...';
+
+            fetch('/start_scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: target, scan_types: scanTypes })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                // 启动 SSE 流
+                eventSource = new EventSource(`/stream/${data.task_id}`);
+                eventSource.onmessage = function(e) {
+                    const msg = JSON.parse(e.data);
+                    const logDiv = document.getElementById('log');
+
+                    if (msg.line !== undefined) {
+                        logDiv.textContent += msg.line + '\n';
+                        logDiv.scrollTop = logDiv.scrollHeight;
+                    }
+
+                    if (msg.report !== undefined) {
+                        document.getElementById('report').textContent = msg.report;
+                    }
+
+                    if (msg.end) {
+                        eventSource.close();
+                        loadHistoryList(); // 刷新历史
+                    }
+
+                    if (msg.error) {
+                        logDiv.textContent += '[ERROR] ' + msg.error + '\n';
+                        logDiv.scrollTop = logDiv.scrollHeight;
+                    }
+                };
+
+                eventSource.onerror = function() {
+                    console.log('SSE 连接异常');
+                    if (eventSource.readyState === EventSource.CLOSED) {
+                        eventSource = null;
+                    }
+                };
+            })
+            .catch(err => {
+                document.getElementById('log').textContent += '\n[ERROR] 启动失败: ' + err.message;
+            });
+        }
+
+        function clearLog() {
+            document.getElementById('log').textContent = '';
+        }
+
+        function loadHistoryList() {
+            fetch('/history')
+                .then(r => r.json())
+                .then(records => {
+                    const listDiv = document.getElementById('history-list');
+                    if (records.length === 0) {
+                        listDiv.innerHTML = '<p>暂无历史记录</p>';
+                        return;
+                    }
+                    listDiv.innerHTML = records.map(rec => `
+                        <div class="history-item" onclick="viewHistory('${rec.id}')">
+                            <strong>${rec.scan_types.join(', ')}</strong>
+                            <div class="history-time">${rec.time}</div>
+                            <div class="history-url">${rec.target_url}</div>
+                        </div>
+                    `).join('');
+                });
+        }
+
+        function viewHistory(scanId) {
+            fetch(`/history/${scanId}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('记录不存在');
+                        return;
+                    }
+                    document.getElementById('log').textContent = data.log || '';
+                    document.getElementById('report').textContent = data.report || '';
+                });
+        }
+
+        window.addEventListener('load', loadHistoryList);
+        window.addEventListener('beforeunload', () => {
+            if (eventSource) eventSource.close();
+        });
+    </script>
+</body>
+</html>
