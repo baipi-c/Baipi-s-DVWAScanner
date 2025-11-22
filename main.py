@@ -6,6 +6,7 @@ from time import sleep
 from typing import Optional
 from colorama import Fore, init
 import contextlib  # 新增：用于临时重定向输出
+from datetime import datetime  # 添加这行导入
 
 # 初始化 colorama
 init(autoreset=True)
@@ -123,7 +124,9 @@ def run_sql(scanner_module, session_info, dvwa_login):
             try:
                 report_dir = os.path.join(BASE_DIR, "scan_result", "sql_scanner")
                 os.makedirs(report_dir, exist_ok=True)
-                fname = os.path.join(report_dir, f"dvwa_sql_scan_report_{int(time.time())}.json")
+                # 修改：使用可读的时间格式
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                fname = os.path.join(report_dir, f"dvwa_sql_scan_report_{timestamp}.json")
                 with open(fname, "w", encoding="utf-8") as f:
                     json.dump(report, f, indent=2, ensure_ascii=False)
                 print(f"{Fore.GREEN}（主程序）已保存 SQL 报告到: {fname}")
@@ -156,15 +159,17 @@ def run_xss(scanner_module, session_info, dvwa_login):
         try:
             report_dir = os.path.join(BASE_DIR, "scan_result", "DvwaXSSScanner")
             os.makedirs(report_dir, exist_ok=True)
-            filename = os.path.join(report_dir, f"dvwa_xss_report_{int(time.time())}.json")
+            # 修改：使用可读的时间格式
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = os.path.join(report_dir, f"dvwa_xss_report_{timestamp}.json")
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(report, f, indent=2, ensure_ascii=False)
             print(f"{Fore.GREEN}[✓] 报告已保存到: {filename}")
         except Exception as e:
             print(f"{Fore.YELLOW}[WARN] 无法保存报告: {e}")
+
     except Exception as e:
         print(f"{Fore.RED}[ERROR] 运行 XSS 扫描时出错: {e}")
-
 
 def run_csrf(scanner_module, session_info, dvwa_login, force_rollback=False):  # 新增 force_rollback 参数
     try:
@@ -184,8 +189,9 @@ def run_csrf(scanner_module, session_info, dvwa_login, force_rollback=False):  #
         try:
             report_dir = scanner.report_dir
             os.makedirs(report_dir, exist_ok=True)
-            fname = os.path.join(report_dir,
-f"dvwa_csrf_report_{int(time.time())}.json")
+            # 修改：使用可读的时间格式
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            fname = os.path.join(report_dir, f"dvwa_csrf_report_{timestamp}.json")
             with open(fname, "w", encoding="utf-8") as f:
                 json.dump(report, f, indent=2, ensure_ascii=False)
             print(f"{Fore.GREEN}（主程序）已保存 CSRF 报告到: {fname}")
@@ -197,6 +203,7 @@ f"dvwa_csrf_report_{int(time.time())}.json")
 def run_cmdi(scanner_module, session_info, dvwa_login):
     try:
         ScannerClass = getattr(scanner_module, "DvwaCommandInjectionScanner", None)
+        # 该模块构造函数为 (session, base_url)
         if ScannerClass is None:
             print(f"{Fore.RED}[ERROR] 命令注入模块中未找到 DvwaCommandInjectionScanner")
             return
@@ -219,7 +226,9 @@ def run_cmdi(scanner_module, session_info, dvwa_login):
             try:
                 report_dir = os.path.join(BASE_DIR, "scan_result", "DvwaCommandInjectionScanner")
                 os.makedirs(report_dir, exist_ok=True)
-                filename = os.path.join(report_dir, f"command_injection_report_{int(time.time())}.json")
+                # 修改：使用可读的时间格式
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                filename = os.path.join(report_dir, f"command_injection_report_{timestamp}.json")
                 with open(filename, 'w', encoding='utf-8') as f:
                     json.dump(report, f, indent=2, ensure_ascii=False)
                 print(f"{Fore.GREEN}[✓] 报告已保存到: {filename}")

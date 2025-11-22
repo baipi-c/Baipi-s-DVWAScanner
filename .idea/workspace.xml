@@ -4,12 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="6ebc3510-b6a7-4a49-b642-fe97775a3f60" name="更改" comment="savefortest">
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+    <list default="true" id="6ebc3510-b6a7-4a49-b642-fe97775a3f60" name="更改" comment="save4">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/scan_result/DvwaFileUploadScanner/report.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/scan_result/DvwaXSSScanner/dvwa_xss_report_1763472089.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/scan_result/sql_scanner/dvwa_sql_scan_report_1763472063.json" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -40,20 +36,47 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.DvwaCommandInjectionScanner.executor": "Run",
-    "Python.DvwaFileUploadScanner.executor": "Run",
-    "Python.main.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "master",
-    "last_opened_file_path": "C:/Users/b3179/Desktop/DVWA_Scanner",
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.DVWAlogin.executor&quot;: &quot;Run&quot;,
+    &quot;Python.DvwaCSRFScanner.executor&quot;: &quot;Run&quot;,
+    &quot;Python.DvwaCommandInjectionScanner.executor&quot;: &quot;Run&quot;,
+    &quot;Python.DvwaFileUploadScanner.executor&quot;: &quot;Run&quot;,
+    &quot;Python.DvwaSql_scanner.executor&quot;: &quot;Run&quot;,
+    &quot;Python.DvwaXSSScanner.executor&quot;: &quot;Run&quot;,
+    &quot;Python.app.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/b3179/Desktop/DVWA_Scanner&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
   }
-}]]></component>
-  <component name="RunManager" selected="Python.DvwaCommandInjectionScanner">
+}</component>
+  <component name="RunManager" selected="Python.DvwaXSSScanner">
+    <configuration name="DvwaCSRFScanner" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="DVWA_Scanner" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/DvwaCSRFScanner.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
     <configuration name="DvwaCommandInjectionScanner" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="DVWA_Scanner" />
       <option name="ENV_FILES" value="" />
@@ -98,7 +121,7 @@
       <option name="INPUT_FILE" value="" />
       <method v="2" />
     </configuration>
-    <configuration name="main" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+    <configuration name="DvwaSql_scanner" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="DVWA_Scanner" />
       <option name="ENV_FILES" value="" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -111,7 +134,29 @@
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/DvwaSql_scanner.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="DvwaXSSScanner" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="DVWA_Scanner" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/DvwaXSSScanner.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -122,9 +167,11 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="Python.DvwaXSSScanner" />
+        <item itemvalue="Python.DvwaSql_scanner" />
+        <item itemvalue="Python.DvwaCSRFScanner" />
         <item itemvalue="Python.DvwaCommandInjectionScanner" />
         <item itemvalue="Python.DvwaFileUploadScanner" />
-        <item itemvalue="Python.main" />
       </list>
     </recent_temporary>
   </component>
@@ -175,13 +222,59 @@
       <option name="project" value="LOCAL" />
       <updated>1763543144664</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="save2">
+      <option name="closed" value="true" />
+      <created>1763545170797</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1763545170797</updated>
+    </task>
+    <task id="LOCAL-00006" summary="save3">
+      <option name="closed" value="true" />
+      <created>1763545229166</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1763545229166</updated>
+    </task>
+    <task id="LOCAL-00007" summary="save3">
+      <option name="closed" value="true" />
+      <created>1763546161821</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1763546161821</updated>
+    </task>
+    <task id="LOCAL-00008" summary="save4">
+      <option name="closed" value="true" />
+      <created>1763563675157</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1763563675157</updated>
+    </task>
+    <option name="localTasksCounter" value="9" />
     <servers />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="save0" />
     <MESSAGE value="save1" />
     <MESSAGE value="savefortest" />
-    <option name="LAST_COMMIT_MESSAGE" value="savefortest" />
+    <MESSAGE value="save2" />
+    <MESSAGE value="save3" />
+    <MESSAGE value="save4" />
+    <option name="LAST_COMMIT_MESSAGE" value="save4" />
   </component>
 </project>
