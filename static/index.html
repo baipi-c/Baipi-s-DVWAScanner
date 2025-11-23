@@ -84,121 +84,346 @@
         </div>
     </div>
 
-    <script>
-        let eventSource = null;
+   <script>
+let eventSource = null;
+let knownHistoryCount = 0; // 👈 新增：记录已知历史数量
 
-        function startScan() {
+function startScan() {
+    const url = document.getElementById('target').value;
+    const checkboxes = document.querySelectorAll('input[name="scan_type"]:checked');
+    const scanTypes = Array.from(checkboxes).map(cb => cb.value);
+
+    if (!url || !url.endsWith('/')) {
+        alert('DVWA 地址必须以 / 结尾');
+        return;
+    }
+    if (scanTypes.length === 0) {
+        alert('请至少选择一种扫描类型');
+        return;
+    }
+
+    fetch('/start_scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, scan_types: scanTypes })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('错误: ' + data.error);
+            return;
+        }
+
+        clearLog();
+        appendLog(`[INFO] 扫描任务已启动，ID: ${data.task_id}`);
+
+        if (eventSource) {
+            eventSource.close();
+        }
+        eventSource = new EventSource(`/stream/${data.task_id}`);
+        eventSource.onmessage = function(event) {
+            const msg = JSON.parse(event.data);
+            if (msg.line !== undefined) {
+                appendLog(msg.line);
+
+                // 检测扫描完成，自动加载报告
+                if (msg.line.includes('[INFO] 扫描已完成！') ||
+                    msg.line.includes('已保存 SQL 报告到') ||
+                    msg.line.includes('扫描完成')) {
+                    setTimeout(() => {
+                        loadReportByTaskId(data.task_id);
+                    }, 500);
+                }
+            } else if (msg.end) {
+                appendLog('[INFO] 扫描流结束');
+                eventSource.close();
+                eventSource = null;
+            }
+        };
+        eventSource.onerror = function() {
+            appendLog('[ERROR] SSE 连接异常');
             if (eventSource) {
                 eventSource.close();
+                eventSource = null;
             }
+        };
+    })
+    .catch(err => {
+        console.error('启动扫描失败:', err);
+        alert('请求失败: ' + err.message);
+    });
+}
 
-            const target = document.getElementById('target').value.trim();
-            if (!target.endsWith('/')) {
-                alert('DVWA 地址必须以 / 结尾！');
-                return;
-            }
+function appendLog(line) {
+    const logDiv = document.getElementById('log');
+    if (!logDiv) return;
+    const p = document.createElement('p');
+    p.textContent = line;
+    p.style.margin = '2px 0';
+    p.style.fontFamily = 'monospace';
+    p.style.fontSize = '14px';
+    logDiv.appendChild(p);
+    logDiv.scrollTop = logDiv.scrollHeight;
+}
 
-            const checkboxes = document.querySelectorAll('input[name="scan_type"]:checked');
-            const scanTypes = Array.from(checkboxes).map(cb => cb.value);
+function clearLog() {
+    const logDiv = document.getElementById('log');
+    if (logDiv) logDiv.innerHTML = '';
+}
 
-            if (scanTypes.length === 0) {
-                alert('请至少选择一种扫描类型！');
-                return;
-            }
+// ==================== 报告渲染核心函数 ====================
+function renderReport(reportObj, preElement) {
+    let output = '';
 
-            document.getElementById('log').textContent = '';
-            document.getElementById('report').textContent = '扫描进行中...';
-
-            fetch('/start_scan', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: target, scan_types: scanTypes })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    alert(data.error);
-                    return;
-                }
-
-                // 启动 SSE 流
-                eventSource = new EventSource(`/stream/${data.task_id}`);
-                eventSource.onmessage = function(e) {
-                    const msg = JSON.parse(e.data);
-                    const logDiv = document.getElementById('log');
-
-                    if (msg.line !== undefined) {
-                        logDiv.textContent += msg.line + '\n';
-                        logDiv.scrollTop = logDiv.scrollHeight;
-                    }
-
-                    if (msg.report !== undefined) {
-                        document.getElementById('report').textContent = msg.report;
-                    }
-
-                    if (msg.end) {
-                        eventSource.close();
-                        loadHistoryList(); // 刷新历史
-                    }
-
-                    if (msg.error) {
-                        logDiv.textContent += '[ERROR] ' + msg.error + '\n';
-                        logDiv.scrollTop = logDiv.scrollHeight;
-                    }
-                };
-
-                eventSource.onerror = function() {
-                    console.log('SSE 连接异常');
-                    if (eventSource.readyState === EventSource.CLOSED) {
-                        eventSource = null;
-                    }
-                };
-            })
-            .catch(err => {
-                document.getElementById('log').textContent += '\n[ERROR] 启动失败: ' + err.message;
-            });
-        }
-
-        function clearLog() {
-            document.getElementById('log').textContent = '';
-        }
-
-        function loadHistoryList() {
-            fetch('/history')
-                .then(r => r.json())
-                .then(records => {
-                    const listDiv = document.getElementById('history-list');
-                    if (records.length === 0) {
-                        listDiv.innerHTML = '<p>暂无历史记录</p>';
-                        return;
-                    }
-                    listDiv.innerHTML = records.map(rec => `
-                        <div class="history-item" onclick="viewHistory('${rec.id}')">
-                            <strong>${rec.scan_types.join(', ')}</strong>
-                            <div class="history-time">${rec.time}</div>
-                            <div class="history-url">${rec.target_url}</div>
-                        </div>
-                    `).join('');
-                });
-        }
-
-        function viewHistory(scanId) {
-            fetch(`/history/${scanId}`)
-                .then(r => r.json())
-                .then(data => {
-                    if (data.error) {
-                        alert('记录不存在');
-                        return;
-                    }
-                    document.getElementById('log').textContent = data.log || '';
-                    document.getElementById('report').textContent = data.report || '';
-                });
-        }
-
-        window.addEventListener('load', loadHistoryList);
-        window.addEventListener('beforeunload', () => {
-            if (eventSource) eventSource.close();
+    if (reportObj.sql_injection) {
+        const sql = reportObj.sql_injection;
+        output += `【SQL 注入检测结果】\n`;
+        output += `目标 URL: ${sql.scan_summary?.target_url || 'N/A'}\n`;
+        output += `漏洞数量: ${sql.scan_summary?.total_vulnerabilities || sql.vulnerabilities?.length || 0}\n\n`;
+        (sql.vulnerabilities || []).forEach((v, i) => {
+            output += `漏洞 #${i + 1}\n`;
+            output += `  参数: ${v.parameter || 'N/A'}\n`;
+            output += `  Payload: ${v.payload || 'N/A'}\n`;
+            output += `  数据库: ${v.db_type || 'N/A'}\n`;
+            output += `  置信度: ${v.confidence || 'N/A'}\n\n`;
         });
-    </script>
+        if (sql.recommendations) {
+            output += `安全建议:\n${sql.recommendations.map(r => `- ${r}`).join('\n')}\n`;
+        }
+        output += '\n' + '='.repeat(50) + '\n\n';
+    }
+
+    if (reportObj.xss) {
+        const xss = reportObj.xss;
+        output += `【XSS 反射型检测结果】\n`;
+        output += `漏洞数量: ${(xss.vulnerabilities || []).length}\n\n`;
+        (xss.vulnerabilities || []).forEach((v, i) => {
+            output += `漏洞 #${i + 1}\n`;
+            output += `  类型: ${v.type || 'N/A'}\n`;
+            output += `  Payload: ${v.payload || 'N/A'}\n`;
+            output += `  上下文: ${v.context || 'N/A'}\n`;
+            output += `  置信度: ${v.confidence || 'N/A'}\n`;
+            if (v.parameter) output += `  参数: ${v.parameter}\n`;
+            output += `\n`;
+        });
+        if (xss.recommendations) {
+            output += `安全建议:\n${xss.recommendations.map(r => `- ${r}`).join('\n')}\n`;
+        }
+        output += '\n' + '='.repeat(50) + '\n\n';
+    }
+
+    if (reportObj.csrf) {
+        const csrf = reportObj.csrf;
+        output += `【CSRF 漏洞检测结果】\n`;
+        output += `目标 URL: ${csrf.target_url || 'N/A'}\n`;
+        output += `是否可利用: ${csrf.is_exploitable ? '是' : '否'}\n`;
+        if (csrf.poc_html) {
+            output += `PoC HTML:\n${csrf.poc_html}\n\n`;
+        }
+        if (csrf.recommendations) {
+            output += `安全建议:\n${csrf.recommendations.map(r => `- ${r}`).join('\n')}\n`;
+        }
+        output += '\n' + '='.repeat(50) + '\n\n';
+    }
+
+    if (reportObj.command_injection) {
+        const cmd = reportObj.command_injection;
+        output += `【命令注入检测结果】\n`;
+        output += `目标 URL: ${cmd.target_url || 'N/A'}\n`;
+        output += `测试载荷数: ${cmd.payloads_tested || 'N/A'}\n`;
+        output += `发现注入点: ${cmd.injection_points_found || 'N/A'}\n`;
+        output += `漏洞数量: ${cmd.total_vulnerabilities || 'N/A'}\n\n`;
+        (cmd.vulnerabilities || []).forEach((v, i) => {
+            output += `漏洞 #${i + 1}\n`;
+            output += `  Payload: ${v.payload || 'N/A'}\n`;
+            output += `  类别: ${v.category || 'N/A'}\n`;
+            output += `  响应证据: ${Array.isArray(v.evidence) ? v.evidence.join(', ') : v.evidence || 'N/A'}\n`;
+            output += `  操作系统: ${v.os_type || 'N/A'}\n\n`;
+        });
+        if (cmd.recommendations) {
+            output += `安全建议:\n${cmd.recommendations.map(r => `- ${r}`).join('\n')}\n`;
+        }
+        output += '\n' + '='.repeat(50) + '\n\n';
+    }
+
+    if (reportObj.file_upload) {
+        const fu = reportObj.file_upload;
+        output += `【文件上传漏洞检测结果】\n`;
+        if (fu.upload_successful !== undefined) {
+            output += `上传成功: ${fu.upload_successful ? '是' : '否'}\n`;
+        }
+        if (fu.uploaded_file_url) {
+            output += `上传文件URL: ${fu.uploaded_file_url}\n`;
+        }
+        if (fu.tested_extensions) {
+            output += `测试扩展名: ${fu.tested_extensions.join(', ')}\n`;
+        }
+        if (fu.recommendations) {
+            output += `安全建议:\n${fu.recommendations.map(r => `- ${r}`).join('\n')}\n`;
+        }
+        output += '\n' + '='.repeat(50) + '\n\n';
+    }
+
+    const knownKeys = ['sql_injection', 'xss', 'csrf', 'command_injection', 'file_upload'];
+    const unknownKeys = Object.keys(reportObj).filter(k => !knownKeys.includes(k));
+    if (unknownKeys.length > 0) {
+        output += `【未知漏洞类型报告】\n`;
+        unknownKeys.forEach(key => {
+            output += `${key}:\n${JSON.stringify(reportObj[key], null, 2)}\n\n`;
+        });
+    }
+
+    if (preElement) {
+        preElement.textContent = output.trim() || '未生成有效报告内容。';
+    }
+}
+
+function loadReportByTaskId(taskId) {
+    fetch(`/history/${taskId}`)
+        .then(response => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+        })
+        .then(data => {
+            const reportPre = document.getElementById('report');
+            if (!reportPre) return;
+
+            if (data.report) {
+                try {
+                    const reportObj = JSON.parse(data.report);
+                    renderReport(reportObj, reportPre);
+                } catch (e) {
+                    console.warn('报告非标准JSON，直接显示原文');
+                    reportPre.textContent = data.report;
+                }
+            } else {
+                reportPre.textContent = '扫描已完成，但未生成结构化报告。';
+            }
+        })
+        .catch(err => {
+            console.warn('自动加载报告失败（可能尚未保存）:', err.message);
+            const reportPre = document.getElementById('report');
+            if (reportPre) reportPre.textContent = '报告生成中...';
+        });
+}
+
+// ==================== 加载历史列表 ====================
+function loadHistory() {
+    const historyList = document.getElementById('history-list');
+    if (!historyList) {
+        console.warn('⚠️ 页面缺少 id="history-list" 元素，历史记录无法显示');
+        return;
+    }
+
+    fetch('/history')
+        .then(response => {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.json();
+        })
+        .then(data => {
+            let records = Array.isArray(data) ? data : [];
+            knownHistoryCount = records.length; // 👈 更新已知数量
+
+            if (records.length === 0) {
+                historyList.innerHTML = '<p>暂无历史记录</p>';
+                return;
+            }
+
+            let html = '';
+            records.forEach(rec => {
+                const id = rec.id || 'unknown';
+                const time = rec.time || '未知时间';
+                const target = rec.target_url || '未知目标';
+                const types = Array.isArray(rec.scan_types) ? rec.scan_types : ['未知'];
+
+                html += `
+                    <div style="margin-bottom: 10px; padding: 8px; background: #f9f9f9; border-radius: 4px; font-size: 13px;">
+                        <small>${time}</small><br>
+                        <strong>${target}</strong><br>
+                        类型: ${types.join(', ')}<br>
+                        <button onclick="showHistoryDetail('${id}')"
+                                style="margin-top: 5px; padding: 3px 8px; font-size: 12px;">
+                            查看详情
+                        </button>
+                    </div>
+                `;
+            });
+            historyList.innerHTML = html;
+        })
+        .catch(err => {
+            console.error('❌ 加载历史记录失败:', err);
+            historyList.innerHTML = `<p style="color:red;">加载失败: ${err.message}</p>`;
+        });
+}
+
+// ==================== 自动检查新历史记录（核心新增）====================
+async function autoCheckHistory() {
+    try {
+        const res = await fetch('/history');
+        const records = await res.json();
+        const currentCount = Array.isArray(records) ? records.length : 0;
+
+        if (currentCount !== knownHistoryCount) {
+            console.log('🔍 检测到新扫描记录，自动更新历史列表');
+            loadHistory(); // 会自动更新 knownHistoryCount
+        }
+    } catch (err) {
+        console.warn('自动检查历史失败:', err);
+    }
+}
+
+// ==================== 查看历史详情 ====================
+function showHistoryDetail(scanId) {
+    if (!scanId || scanId === 'unknown') {
+        alert('无效的历史记录ID');
+        return;
+    }
+
+    clearLog();
+    const reportPre = document.getElementById('report');
+    if (reportPre) reportPre.textContent = '正在加载...';
+
+    fetch(`/history/${scanId}`)
+        .then(response => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+        })
+        .then(data => {
+            const logLines = (data.log || '').split('\n');
+            logLines.forEach(line => {
+                if (line.trim()) {
+                    appendLog(line);
+                }
+            });
+
+            const reportPre = document.getElementById('report');
+            if (reportPre && data.report) {
+                try {
+                    const reportObj = JSON.parse(data.report);
+                    renderReport(reportObj, reportPre);
+                } catch (e) {
+                    console.warn('报告解析失败，显示原文');
+                    reportPre.textContent = data.report;
+                }
+            } else if (reportPre) {
+                reportPre.textContent = '⚠️ 无报告内容';
+            }
+        })
+        .catch(err => {
+            console.error('加载历史详情失败:', err);
+            appendLog(`❌ 加载失败: ${err.message}`);
+            const reportPre = document.getElementById('report');
+            if (reportPre) reportPre.textContent = '加载失败';
+        });
+}
+
+// ===== 初始化 =====
+window.loadHistory = loadHistory;
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadHistory(); // 首次加载
+    setInterval(autoCheckHistory, 2000); // 👈 每2秒自动检查一次
+});
+</script>
 </body>
 </html>
