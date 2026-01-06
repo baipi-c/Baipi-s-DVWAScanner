@@ -1,31 +1,45 @@
+# DvwaFileUploadScanner.py - 集成自动爬虫
 import os
 import re
 import json
 import sys
 from urllib.parse import urljoin
-from colorama import Fore, Style
+from colorama import Fore, Style, init
 from datetime import datetime
+
+init(autoreset=True)
 
 try:
     from DVWAlogin import DvwaLogin
 
+    # 动态导入爬虫，避免循环依赖
+    try:
+        from crawler import VulnerabilityCrawler
+
+        CRAWLER_AVAILABLE = True
+    except ImportError:
+        CRAWLER_AVAILABLE = False
+        print(f"{Fore.YELLOW}[WARN] 爬虫模块未找到，通用模式需要手动提供crawl_results")
+
     print(f"{Fore.GREEN}[✓] DVWA登录模块加载成功")
 except Exception as e:
-    print(f"{Fore.RED}[✗] DVWA登录模块加载失败: {e}")
+    print(f"{Fore.RED}[✗] 依赖加载失败: {e}")
     sys.exit(1)
 
 
 class DvwaFileUploadScanner:
-    def __init__(self, session, base_url, mode="dvwa"):
+    def __init__(self, session, base_url, mode="dvwa", crawl_depth=2):
         """
         文件上传漏洞扫描器
         :param session: requests会话对象
         :param base_url: 目标网站基础URL
         :param mode: 扫描模式 - "dvwa" 或 "generic"
+        :param crawl_depth: 通用模式下的爬取深度，默认2
         """
         self.session = session
         self.base_url = base_url.rstrip("/ ")
         self.mode = mode
+        self.crawl_depth = crawl_depth
 
         # 根据模式设置默认上传路径
         if mode == "dvwa":
@@ -72,10 +86,15 @@ class DvwaFileUploadScanner:
             print(f"{Fore.RED}[✗] {error_msg}")
             return False, "", error_msg
 
-        print(f"{Fore.CYAN}[→] 准备上传测试文件: {shell_path}")
-        files = {
-            file_field_name: ("backdoor.php", open(shell_path, "rb"), "application/octet-stream")
-        }
+        print(f"{Fore.CYAN}[→] 准备上传测试文件: {os.path.basename(shell_path)}")
+        try:
+            files = {
+                file_field_name: ("backdoor.php", open(shell_path, "rb"), "application/octet-stream")
+            }
+        except Exception as e:
+            error_msg = f"无法读取测试文件: {e}"
+            print(f"{Fore.RED}[✗] {error_msg}")
+            return False, "", error_msg
 
         try:
             # 执行上传
@@ -115,12 +134,14 @@ class DvwaFileUploadScanner:
 
             if verify.status_code == 200:
                 print(f"{Fore.GREEN}[✓] 文件可访问！状态码: {verify.status_code}")
-                print(f"{Fore.GREEN}[✓] {Fore.MAGENTA}{Style.BRIGHT}** 发现文件上传漏洞！ **{Style.RESET_ALL}")
-                print(f"{Fore.GREEN}[✓] 上传的文件可以直接访问，可能被利用")
+                print(f"{Fore.MAGENTA}{Style.BRIGHT}╔══════════════════════════════════════════════════════╗")
+                print(f"{Fore.MAGENTA}{Style.BRIGHT}║  [!!] 发现文件上传漏洞！文件可直接访问              ║")
+                print(
+                    f"{Fore.MAGENTA}{Style.BRIGHT}╚══════════════════════════════════════════════════════╝{Style.RESET_ALL}")
                 return True, file_url, "文件上传漏洞存在，可访问上传文件"
             else:
                 print(f"{Fore.YELLOW}[!] 文件访问失败，状态码: {verify.status_code}")
-                print(f"{Fore.YELLOW}[!] 可能原因: 1) 文件未上传成功 2) 路径推断错误 3) 权限限制")
+                print(f"{Fore.YELLOW}[i] 可能原因: 1) 路径推断错误 2) 文件被重命名 3) 权限限制")
                 return False, file_url, "文件上传成功，但无法访问上传文件"
 
         except Exception as e:
@@ -158,16 +179,16 @@ class DvwaFileUploadScanner:
         print(f"{Fore.BLUE}扫描总结")
         print(f"{Fore.BLUE}{'=' * 60}")
         if vulnerable:
-            print(f"{Fore.MAGENTA}{Style.BRIGHT}[!] 漏洞状态: {Fore.RED}存在漏洞{Style.RESET_ALL}")
+            print(f"{Fore.RED}{Style.BRIGHT}[!!] 漏洞状态: 存在高危漏洞{Style.RESET_ALL}")
         else:
-            print(f"{Fore.CYAN}[i] 漏洞状态: {Fore.GREEN}未发现问题{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}[ok] 漏洞状态: 未发现问题")
         print(f"{Fore.CYAN}[i] 详细报告已保存: {report_path}")
         print(f"{Fore.BLUE}{'=' * 60}\n")
 
     def detect(self, crawl_results=None):
         """
         主检测方法
-        :param crawl_results: 爬虫结果（通用模式需要）
+        :param crawl_results: 爬虫结果（通用模式可自动获取）
         """
         print(f"\n{Fore.CYAN}{'=' * 60}")
         print(f"{Fore.CYAN}文件上传漏洞扫描器启动")
@@ -178,16 +199,40 @@ class DvwaFileUploadScanner:
         if self.mode == "dvwa":
             print(f"{Fore.CYAN}[i] DVWA模式: 使用内置固定路径")
             self._scan_dvwa_fixed()
-        else:
-            if not crawl_results:
-                print(f"{Fore.RED}[✗] 错误: 通用模式需要提供爬虫发现的上传表单数据")
-                print(f"{Fore.YELLOW}[!] 请先运行爬虫模块获取上传点信息")
-                return
 
-            print(f"{Fore.GREEN}[✓] 爬虫共发现 {len(crawl_results)} 个上传表单")
+        else:
+            # 通用模式：自动调用爬虫或手动提供结果
+            if crawl_results is None:
+                if not CRAWLER_AVAILABLE:
+                    print(f"{Fore.RED}[✗] 错误: 未提供爬虫结果且爬虫模块不可用")
+                    print(f"{Fore.YELLOW}[i] 请确保crawler.py在同一目录下")
+                    return
+
+                print(f"{Fore.CYAN}[i] 未提供爬虫结果，正在自动爬取...")
+                print(f"{Fore.CYAN}[i] 爬取深度: {self.crawl_depth} | 延迟: 0.5秒\n")
+
+                crawler = VulnerabilityCrawler(self.base_url, max_depth=self.crawl_depth, delay=0.5)
+                crawler.crawl(self.base_url)
+
+                # 只获取上传表单
+                all_results = crawler.get_results()
+                crawl_results = all_results['upload_forms']
+
+                if not crawl_results:
+                    print(f"{Fore.YELLOW}[!] 未在网站中发现任何文件上传表单")
+                    return
+
+                print(f"\n{Fore.GREEN}[✓] 自动爬取完成，发现 {len(crawl_results)} 个上传表单")
+
+            else:
+                print(f"{Fore.CYAN}[i] 使用提供的爬虫结果 ({len(crawl_results)} 个表单)")
+
+            # 扫描每个上传点
+            print(f"\n{Fore.GREEN}[i] 开始扫描 {len(crawl_results)} 个上传表单...\n")
 
             for idx, upload_form in enumerate(crawl_results, 1):
-                print(f"\n{Fore.CYAN}[i] 正在处理第 {idx}/{len(crawl_results)} 个上传点")
+                print(f"{Fore.BLUE}{'─' * 60}")
+                print(f"{Fore.BLUE}进度: [{idx}/{len(crawl_results)}]")
 
                 vulnerable, file_url, message = self.scan_upload_point(
                     upload_form['url'],
@@ -218,18 +263,19 @@ class DvwaFileUploadScanner:
 
 def main():
     """交互式主函数"""
-    print("=" * 50)
+    print("=" * 60)
     print("    文件上传漏洞扫描程序")
-    print("=" * 50)
+    print("=" * 60)
 
     print("\n选择目标类型:")
     print("1. DVWA (内置固定路径)")
-    print("2. 其他网站 (需要配合爬虫)")
+    print("2. 其他网站 (自动爬取或手动提供结果)")
 
     choice = input("\n请输入选项 (1/2): ").strip()
 
     if choice == "1":
-        url = input("请输入 DVWA 首页 URL (如 http://localhost/dvwa): ").strip()
+        # DVWA模式
+        url = input("请输入 DVWA 首页 URL: ").strip()
         if not url:
             print(f"{Fore.RED}[✗] URL 不能为空")
             return
@@ -247,15 +293,19 @@ def main():
         scanner.detect()
 
     elif choice == "2":
-        print(f"{Fore.YELLOW}[!] 通用模式需要先运行爬虫获取上传表单信息")
+        # 通用模式 - 自动爬取
         url = input("请输入目标网站 URL: ").strip()
+        depth_input = input("请输入爬取深度 (默认2): ").strip()
+        crawl_depth = int(depth_input) if depth_input.isdigit() else 2
 
+        print(f"\n{Fore.CYAN}[i] 初始化通用模式...")
         import requests
-        session = requests.Session()
 
-        scanner = DvwaFileUploadScanner(session, url, mode="generic")
-        print(f"{Fore.YELLOW}[!] 请确保已运行爬虫并提供 crawl_results 参数")
-        print(f"{Fore.CYAN}[i] 示例: scanner.detect(crawl_results=your_crawl_data)")
+        session = requests.Session()
+        session.headers.update({'User-Agent': 'Mozilla/5.0'})
+
+        scanner = DvwaFileUploadScanner(session, url, mode="generic", crawl_depth=crawl_depth)
+        scanner.detect()  # 自动调用爬虫
 
     else:
         print(f"{Fore.RED}[✗] 无效选项")
