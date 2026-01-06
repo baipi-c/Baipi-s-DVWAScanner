@@ -1,9 +1,8 @@
-# crawler.py - 增强版（带重试、延迟、精确计数）
+import time
 import os
 import json
 import re
 import sys
-import time
 from urllib.parse import urljoin, urlparse, parse_qs
 from datetime import datetime
 
@@ -14,76 +13,40 @@ except ImportError:
     sys.exit(1)
 
 import requests
-from colorama import Fore, Style, init
+from colorama import Fore, init
 
 init(autoreset=True)
 
 
 class VulnerabilityCrawler:
-    def __init__(self, base_url, max_depth=2, delay=0.5, timeout=15, retries=2):
+    def __init__(self, base_url, max_depth=2):
         """
-        漏洞扫描专用爬虫 - 增强版
+        漏洞扫描专用爬虫
         :param base_url: 起始URL
         :param max_depth: 最大爬取深度，默认2
-        :param delay: 请求延迟(秒)，默认0.5
-        :param timeout: 超时时间(秒)，默认15
-        :param retries: 失败重试次数，默认2
         """
         self.base_url = base_url.rstrip('/')
         self.domain = urlparse(base_url).netloc
         self.max_depth = max_depth
-        self.delay = delay
-        self.timeout = timeout
-        self.retries = retries
-
-        # 精确计数：只统计成功访问的页面
-        self.visited_success = set()
-        self.visited_attempted = set()
+        self.visited = set()
+        self.session = requests.Session()
+        self.session.headers.update({
+            "User-Agent": "VulnerabilityCrawler/1.0"
+        })
         self.injection_points = {
-            'url_params': [],
-            'forms': [],
-            'upload_forms': [],
+            'url_params': [],  # URL参数注入点
+            'forms': [],  # 普通表单
+            'upload_forms': [],  # 文件上传表单
         }
 
     def is_same_domain(self, url):
         """检查是否为同一域名"""
-        try:
-            return urlparse(url).netloc == self.domain
-        except:
-            return False
+        return urlparse(url).netloc == self.domain
 
     def is_valid_url(self, url):
-        """过滤无效URL和资源文件"""
-        try:
-            invalid_ext = ('.pdf', '.jpg', '.jpeg', '.png', '.gif', '.zip', '.rar',
-                           '.exe', '.mp4', '.mp3', '.css', '.js', '.ico', '.svg', '.woff', '.woff2')
-            return not url.lower().endswith(invalid_ext)
-        except:
-            return False
-
-    def fetch_with_retry(self, url):
-        """带重试的请求"""
-        for attempt in range(self.retries + 1):
-            try:
-                if attempt > 0:
-                    print(f"    {Fore.YELLOW}[-] 第{attempt}次重试...")
-                    time.sleep(self.delay * 2)
-
-                response = requests.get(
-                    url,
-                    timeout=self.timeout,
-                    allow_redirects=True,
-                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-                )
-                return response, None
-            except requests.exceptions.Timeout:
-                error = f"请求超时 ({self.timeout}秒)"
-            except requests.exceptions.ConnectionError:
-                error = "连接失败"
-            except Exception as e:
-                error = str(e)
-
-        return None, error
+        """过滤无效URL"""
+        invalid_ext = ('.pdf', '.jpg', '.jpeg', '.png', '.gif', '.zip', '.rar', '.exe', '.mp4', '.mp3')
+        return not url.lower().endswith(invalid_ext)
 
     def extract_url_params(self, url):
         """提取URL参数注入点"""
@@ -96,8 +59,7 @@ class VulnerabilityCrawler:
                     'params': params,
                     'method': 'GET'
                 })
-                print(f"{Fore.CYAN}[→] 发现URL参数: {params}")
-                print(f"    {Fore.LIGHTBLACK_EX}└─ URL: {url}")
+                print(f"{Fore.CYAN}[→] 发现URL参数: {params} (URL: {url})")
 
     def extract_forms(self, soup, current_url):
         """提取表单注入点"""
@@ -135,77 +97,66 @@ class VulnerabilityCrawler:
             if is_upload:
                 form_info['file_field'] = file_field or 'uploaded'
                 self.injection_points['upload_forms'].append(form_info)
-                print(f"{Fore.GREEN}[+] 发现文件上传表单")
-                print(f"    {Fore.LIGHTBLACK_EX}└─ URL: {form_url}")
-                print(f"    {Fore.LIGHTBLACK_EX}└─ 文件字段: {file_field}")
+                print(f"{Fore.GREEN}[+] 发现文件上传表单: {form_url}")
             else:
                 self.injection_points['forms'].append(form_info)
-                print(f"{Fore.CYAN}[→] 发现普通表单")
-                print(f"    {Fore.LIGHTBLACK_EX}└─ URL: {form_url}")
-                print(f"    {Fore.LIGHTBLACK_EX}└─ 字段: {list(form_data.keys())}")
+                print(f"{Fore.CYAN}[→] 发现普通表单: {form_url} (字段: {list(form_data.keys())})")
 
     def crawl(self, url, depth=0):
-        """深度优先爬取 - 精确计数版"""
-        # 避免重复尝试
-        if url in self.visited_attempted:
+        """深度优先爬取"""
+        if depth > self.max_depth or url in self.visited:
             return
 
-        # 标记为已尝试
-        self.visited_attempted.add(url)
-
-        # 深度检查
-        if depth > self.max_depth:
-            return
-
-        # 域名和URL有效性检查
-        if not self.is_same_domain(url) or not self.is_valid_url(url):
-            return
-
-        print(f"{'  ' * depth}[+] 深度{depth}: {url}")
-
-        # 请求页面
-        response, error = self.fetch_with_retry(url)
-        if error:
-            print(f"{'  ' * (depth + 1)}{Fore.RED}[✗] 访问失败: {error}")
-            return
-
-        # 成功访问，加入成功集合
-        self.visited_success.add(url)
+        print(f"{'  ' * depth}[+] 正在爬取: {url}")
+        self.visited.add(url)
 
         try:
+            time.sleep(0.3)
+
+            response = self.session.get(
+                url,
+                timeout=5,
+                allow_redirects=True
+            )
+            if response.status_code != 200:
+                print(f"{'  ' * depth}[-] 访问失败: {response.status_code}")
+                return
+
             soup = BeautifulSoup(response.text, 'html.parser')
 
-            # 提取注入点
-            self.extract_url_params(response.url)
-            self.extract_forms(soup, response.url)
+            # 提取当前页面的注入点
+            self.extract_url_params(url)
+            self.extract_forms(soup, url)
 
-            # 查找所有链接
-            links = soup.find_all('a', href=True)
+            # DVWA特殊处理
+            is_dvwa = 'dvwa' in self.domain.lower()
+            if is_dvwa:
+                links = soup.find_all('a', href=re.compile(r'vulnerabilities/'))
+            else:
+                links = soup.find_all('a', href=True)
 
             # 递归爬取
             for link in links:
                 href = link['href']
-                full_url = urljoin(response.url, href)
+                full_url = urljoin(url, href)
 
-                # 延迟，避免请求过快
-                if self.delay > 0:
-                    time.sleep(self.delay)
-
-                self.crawl(full_url, depth + 1)
+                if (full_url not in self.visited and
+                        self.is_same_domain(full_url) and
+                        self.is_valid_url(full_url)):
+                    self.crawl(full_url, depth + 1)
 
         except Exception as e:
-            print(f"{'  ' * (depth + 1)}{Fore.YELLOW}[-] 解析错误: {e}")
+            print(f"{'  ' * depth}{Fore.YELLOW}[-] 错误: {e}")
 
     def get_results(self):
-        """获取爬取结果统计"""
+        """获取爬取结果"""
         print(f"\n{Fore.BLUE}{'=' * 60}")
         print(f"{Fore.BLUE}爬虫统计信息")
         print(f"{Fore.BLUE}{'=' * 60}")
-        print(f"尝试访问页面: {len(self.visited_attempted)}")
-        print(f"{Fore.GREEN}成功访问页面: {len(self.visited_success)}")
-        print(f"{Fore.CYAN}URL参数注入点: {len(self.injection_points['url_params'])}")
-        print(f"{Fore.CYAN}普通表单: {len(self.injection_points['forms'])}")
-        print(f"{Fore.CYAN}文件上传表单: {len(self.injection_points['upload_forms'])}")
+        print(f"访问页面数: {len(self.visited)}")
+        print(f"URL参数注入点: {len(self.injection_points['url_params'])}")
+        print(f"普通表单: {len(self.injection_points['forms'])}")
+        print(f"文件上传表单: {len(self.injection_points['upload_forms'])}")
         print(f"{Fore.BLUE}{'=' * 60}\n")
 
         return self.injection_points
@@ -219,25 +170,14 @@ class VulnerabilityCrawler:
         filepath = os.path.join("scan_result", filename)
         os.makedirs("scan_result", exist_ok=True)
 
-        data = {
-            "scan_info": {
-                "base_url": self.base_url,
-                "max_depth": self.max_depth,
-                "success_pages": len(self.visited_success),
-                "attempted_pages": len(self.visited_attempted),
-            },
-            "injection_points": self.injection_points
-        }
-
         with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+            json.dump(self.injection_points, f, indent=4, ensure_ascii=False)
 
         print(f"{Fore.GREEN}[✓] 爬取结果已保存: {filepath}")
         return filepath
 
 
 def main():
-    """交互式主函数"""
     print("=" * 60)
     print("    漏洞扫描爬虫程序")
     print("=" * 60)
@@ -251,32 +191,24 @@ def main():
     max_depth = int(depth_input) if depth_input.isdigit() else 2
 
     print(f"\n{Fore.CYAN}[i] 开始爬取，最大深度: {max_depth}")
-    print(f"{Fore.CYAN}[i] 目标: {url}")
-    print(f"{Fore.CYAN}[i] 请求延迟: 0.5秒 | 超时: 15秒 | 重试: 2次\n")
+    print(f"{Fore.CYAN}[i] 目标: {url}\n")
 
-    crawler = VulnerabilityCrawler(url, max_depth=max_depth, delay=0.5, timeout=15)
+    crawler = VulnerabilityCrawler(url, max_depth=max_depth)
     crawler.crawl(url)
     results = crawler.get_results()
+
+    # 保存结果
     crawler.save_results()
 
-    # 后续扫描建议
-    print(f"\n{Fore.GREEN}[!] 爬取完成！建议执行:")
-    has_forms = False
-
+    # 简要总结
     if results['upload_forms']:
-        print(f"      {Fore.MAGENTA}⇢ 文件上传扫描器 ({len(results['upload_forms'])}个表单)")
-        has_forms = True
+        print(f"\n{Fore.GREEN}[!] 发现文件上传表单 - 可使用文件上传扫描器")
 
     if results['forms']:
-        print(f"      {Fore.MAGENTA}⇢ SQLi/XSS/CSRF扫描器 ({len(results['forms'])}个表单)")
-        has_forms = True
+        print(f"{Fore.GREEN}[!] 发现普通表单 - 可使用SQLi/XSS/CSRF扫描器")
 
     if results['url_params']:
-        print(f"      {Fore.MAGENTA}⇢ URL参数扫描器 ({len(results['url_params'])}个链接)")
-        has_forms = True
-
-    if not has_forms:
-        print(f"      {Fore.YELLOW}未发现任何注入点，目标可能是API或纯静态站")
+        print(f"{Fore.GREEN}[!] 发现URL参数 - 可使用SQLi/XSS扫描器")
 
 
 if __name__ == "__main__":
