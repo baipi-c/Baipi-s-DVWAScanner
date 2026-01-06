@@ -1,3 +1,4 @@
+
 import sys
 import os
 import time
@@ -10,7 +11,6 @@ import requests
 import urllib3
 from bs4 import BeautifulSoup
 from colorama import Fore, init
-from datetime import datetime
 
 try:
     from DVWAlogin import DvwaLogin
@@ -568,9 +568,7 @@ def main():
             report_dir = os.path.join(base_path, "scan_result", "DvwaCommandInjectionScanner")
             try:
                 os.makedirs(report_dir, exist_ok=True)
-                # 使用可读的时间格式生成文件名
-                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                filename = os.path.join(report_dir, f"command_injection_report_{timestamp}.json")
+                filename = os.path.join(report_dir, f"command_injection_report_{int(time.time())}.json")
 
                 with open(filename, 'w', encoding='utf-8') as f:
                     json.dump(report, f, indent=2, ensure_ascii=False)
@@ -579,9 +577,7 @@ def main():
 
             except Exception as e:
                 print(f"{Fore.YELLOW}[WARN] 无法保存报告到指定目录: {e}")
-                # 使用可读的时间格式生成文件名（备用）
-                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                fallback_name = f"dvwa_command_injection_report_{timestamp}.json"
+                fallback_name = f"dvwa_report_{int(time.time())}.json"
                 with open(fallback_name, 'w', encoding='utf-8') as f:
                     json.dump(report, f, indent=2, ensure_ascii=False)
                 print(f"{Fore.GREEN}报告已保存到当前目录: {fallback_name}")

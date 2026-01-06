@@ -27,3 +27,25 @@ git fetch upstream
 
 ## 温馨提示
 该程序有很多问题，如果遇到了请私信我，不保证解决
+
+## 项目架构
+```
+DVWA_Scanner/
+├── app.py                             # 生成本地网页
+├── DvwaCommandInjectionScanner.py     # 命令注入扫描器 
+├── DvwaCSRFScanner.py                 # CSRF扫描器 
+├── DvwaFileUploadScanner.py           # 文件上传扫描器 
+├── DVWAlogin.py                       # DVWA登录程序 
+├── DvwaSql_scanner.py                 # SQL注入扫描器 
+├── DvwaXSSScanner.py                  # XSS注入扫描器 
+├── main.py                            # 集成了所有扫描器的主程序 
+├── config/
+    ├── xss_payload.txt                # XSS扫描器用到的payload 
+├── scan_result
+    ├── DvwaCommandInjectionScanner/   # 命令注入扫描器扫描报告储存文件夹
+    ├── DvwaCSRFScanner/               # CSRF扫描器扫描报告储存文件夹
+    ├── DvwaFileUploadScanner/         # 文件上传扫描器扫描报告储存文件夹
+    ├── DvwaXSSScanner/                # XSS注入扫描器扫描报告储存文件夹
+    ├── sql_scanner/                   # SQL注入扫描器扫描报告储存文件夹
+    └── crawl_results_YYYYMMDD_HHMMSS.json  # 爬虫结果
+```
