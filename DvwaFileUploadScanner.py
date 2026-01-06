@@ -1,28 +1,19 @@
-# DvwaFileUploadScanner.py - 集成自动爬虫
+# DvwaFileUploadScanner.py - 修复版本
 import os
 import re
 import json
 import sys
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from colorama import Fore, Style, init
 from datetime import datetime
 
 init(autoreset=True)
 
+# 统一导入，不需要动态导入
 try:
     from DVWAlogin import DvwaLogin
-
-    # 动态导入爬虫，避免循环依赖
-    try:
-        from crawler import VulnerabilityCrawler
-
-        CRAWLER_AVAILABLE = True
-    except ImportError:
-        CRAWLER_AVAILABLE = False
-        print(f"{Fore.YELLOW}[WARN] 爬虫模块未找到，通用模式需要手动提供crawl_results")
-
-    print(f"{Fore.GREEN}[✓] DVWA登录模块加载成功")
-except Exception as e:
+    from crawler import VulnerabilityCrawler
+except ImportError as e:
     print(f"{Fore.RED}[✗] 依赖加载失败: {e}")
     sys.exit(1)
 
@@ -47,7 +38,7 @@ class DvwaFileUploadScanner:
             self.upload_dir = urljoin(self.base_url, "hackable/uploads/")
         else:
             self.upload_url = None
-            self.upload_dir = None
+            # 通用模式下不预设upload_dir，在扫描时动态推断
 
         # 创建报告目录
         self.report_dir = os.path.join("scan_result", "DvwaFileUploadScanner")
@@ -120,10 +111,13 @@ class DvwaFileUploadScanner:
             # 提取文件名
             uploaded_name = self.extract_filename(response.text)
 
-            # 推断上传目录
+            # 推断上传目录（通用模式）
             if self.mode == "generic":
-                parsed_url = upload_url.split('?')[0]
-                self.upload_dir = urljoin(parsed_url.rsplit('/', 1)[0] + '/', "uploads/")
+                # 更合理的推断：使用上传页面的同级目录
+                parsed = urlparse(upload_url)
+                # 取上传页面URL的目录路径
+                upload_page_dir = f"{parsed.scheme}://{parsed.netloc}{parsed.path.rsplit('/', 1)[0]}/"
+                self.upload_dir = upload_page_dir
 
             file_url = urljoin(self.upload_dir, uploaded_name)
             print(f"{Fore.CYAN}[→] 推断上传文件访问地址: {file_url}")
@@ -188,7 +182,7 @@ class DvwaFileUploadScanner:
     def detect(self, crawl_results=None):
         """
         主检测方法
-        :param crawl_results: 爬虫结果（通用模式可自动获取）
+        :param crawl_results: 爬虫结果列表，格式为 crawler.py 中的 upload_forms
         """
         print(f"\n{Fore.CYAN}{'=' * 60}")
         print(f"{Fore.CYAN}文件上传漏洞扫描器启动")
@@ -201,22 +195,16 @@ class DvwaFileUploadScanner:
             self._scan_dvwa_fixed()
 
         else:
-            # 通用模式：自动调用爬虫或手动提供结果
+            # 通用模式：处理爬虫结果
             if crawl_results is None:
-                if not CRAWLER_AVAILABLE:
-                    print(f"{Fore.RED}[✗] 错误: 未提供爬虫结果且爬虫模块不可用")
-                    print(f"{Fore.YELLOW}[i] 请确保crawler.py在同一目录下")
-                    return
-
                 print(f"{Fore.CYAN}[i] 未提供爬虫结果，正在自动爬取...")
-                print(f"{Fore.CYAN}[i] 爬取深度: {self.crawl_depth} | 延迟: 0.5秒\n")
+                print(f"{Fore.CYAN}[i] 爬取深度: {self.crawl_depth}\n")
 
-                crawler = VulnerabilityCrawler(self.base_url, max_depth=self.crawl_depth, delay=0.5)
+                crawler = VulnerabilityCrawler(self.base_url, max_depth=self.crawl_depth)
                 crawler.crawl(self.base_url)
 
-                # 只获取上传表单
                 all_results = crawler.get_results()
-                crawl_results = all_results['upload_forms']
+                crawl_results = all_results.get('upload_forms', [])
 
                 if not crawl_results:
                     print(f"{Fore.YELLOW}[!] 未在网站中发现任何文件上传表单")
@@ -234,10 +222,15 @@ class DvwaFileUploadScanner:
                 print(f"{Fore.BLUE}{'─' * 60}")
                 print(f"{Fore.BLUE}进度: [{idx}/{len(crawl_results)}]")
 
+                # 安全检查：确保必要字段存在
+                if 'url' not in upload_form or 'file_field' not in upload_form:
+                    print(f"{Fore.YELLOW}[!] 表单信息不完整，跳过: {upload_form}")
+                    continue
+
                 vulnerable, file_url, message = self.scan_upload_point(
                     upload_form['url'],
                     upload_form.get('form_data', {}),
-                    upload_form.get('file_field', 'uploaded')
+                    upload_form['file_field']
                 )
 
                 self.save_report(
@@ -269,7 +262,7 @@ def main():
 
     print("\n选择目标类型:")
     print("1. DVWA (内置固定路径)")
-    print("2. 其他网站 (自动爬取或手动提供结果)")
+    print("2. 其他网站 (自动爬取)")
 
     choice = input("\n请输入选项 (1/2): ").strip()
 

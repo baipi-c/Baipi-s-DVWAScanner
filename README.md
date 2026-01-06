@@ -32,6 +32,7 @@ git fetch upstream
 ```
 DVWA_Scanner/
 ├── app.py                             # 生成本地网页
+├── crawler.py                         # 爬虫模块 
 ├── DvwaCommandInjectionScanner.py     # 命令注入扫描器 
 ├── DvwaCSRFScanner.py                 # CSRF扫描器 
 ├── DvwaFileUploadScanner.py           # 文件上传扫描器 
@@ -41,6 +42,7 @@ DVWA_Scanner/
 ├── main.py                            # 集成了所有扫描器的主程序 
 ├── config/
     ├── xss_payload.txt                # XSS扫描器用到的payload 
+    ├── backdoor.php                   # 文件上传扫描器后门文件 
 ├── scan_result
     ├── DvwaCommandInjectionScanner/   # 命令注入扫描器扫描报告储存文件夹
     ├── DvwaCSRFScanner/               # CSRF扫描器扫描报告储存文件夹
