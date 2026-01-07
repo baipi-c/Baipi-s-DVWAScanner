@@ -498,7 +498,7 @@ class DvwaCSRFScanner:
         print(f"{Fore.YELLOW}{'=' * 60}")
         print(f"{Fore.CYAN}1. 在浏览器中登录目标网站（保持登录状态）")
         print(f"{Fore.CYAN}2. 在同浏览器的**新标签页**打开: file://{poc_file}")
-        print(f"{Fore.CYAN}3. 观察页面是否显示'CSRF攻击已执行'")
+        print(f"{Fore.CYAN}3. 观察页面是否显示'searched for: _csrf_test'")
         print(f"{Fore.CYAN}4. 等待5秒后，程序将自动验证结果")
         print(f"{Fore.YELLOW}{'=' * 60}\n")
 

@@ -549,7 +549,14 @@ class NormalSQLScanner:
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "SQLScanner/1.0"})
-
+        self.tested_params = set()  # 存储 (base_url, param_name)
+        self.tested_fields = set()  # 存储 (form_url, field_name)
+        # 智能筛选：只测试这些关键词相关的参数
+        self.sql_keywords = {'id', 'user', 'name', 'search', 'query', 'keyword',
+                             'email', 'phone', 'code', 'category', 'filter', 'type'}
+        # 黑名单：绝对跳过的参数
+        self.blacklist = {'submit', 'btn', 'token', 'csrf_token', 'captcha',
+                          'action', 'do', 'save', 'delete', 'reset'}
         self.results = {
             'target_url': '普通网站多页面',
             'vulnerabilities': [],
@@ -573,6 +580,21 @@ class NormalSQLScanner:
             'postgresql': [r'error: syntax error at or near', r'postgresql', r'pg_']
         }
 
+    def _should_test_param(self, param_name: str) -> bool:
+        """智能判断参数是否值得测试"""
+        param_lower = param_name.lower()
+
+        # 1. 黑名单直接跳过
+        if param_lower in self.blacklist:
+            return False
+
+        # 2. 包含SQL相关关键词则测试
+        if any(keyword in param_lower for keyword in self.sql_keywords):
+            return True
+
+        # 3. 其他参数跳过（如：button_color, layout_style等）
+        return False
+
     def detect_db_type(self, text: str) -> str:
         """检测数据库类型"""
         if not text:
@@ -588,14 +610,29 @@ class NormalSQLScanner:
         return 'unknown'
 
     def test_url_params(self, url: str, param_list: List[str]) -> List[Dict]:
-        """测试URL参数注入"""
+        """测试URL参数注入（新增去重逻辑 + 智能筛选）"""
         vulns = []
         parsed = urllib.parse.urlparse(url)
         all_params = urllib.parse.parse_qs(parsed.query)
+        base_url = url.split('?')[0]  # 用于去重的基准URL
 
         for param_name in param_list:
-            original_value = all_params.get(param_name, [""])[0]
+            # ===== 去重检查：跳过已测试的参数 =====
+            param_key = (base_url, param_name)
+            if param_key in self.tested_params:
+                print(f"{Fore}[-] 跳过重复参数: {param_name}")
+                continue
+            self.tested_params.add(param_key)
+            # ======================================
+
+            # ===== 智能筛选：只测试相关参数 =====
+            if not self._should_test_param(param_name):
+                print(f"{Fore}[-] 跳过无关参数: {param_name}")
+                continue
+            # ======================================
+
             print(f"{Fore.CYAN}[TEST] 测试参数: {param_name}")
+            original_value = all_params.get(param_name, [""])[0]
 
             for payload in self.payloads:
                 test_params = all_params.copy()
@@ -603,7 +640,7 @@ class NormalSQLScanner:
 
                 try:
                     response = self.session.get(
-                        url.split('?')[0],
+                        base_url,
                         params=test_params,
                         timeout=self.timeout,
                         verify=False
@@ -625,10 +662,24 @@ class NormalSQLScanner:
         return vulns
 
     def test_form(self, form_url: str, method: str, form_data: Dict) -> List[Dict]:
-        """测试表单注入"""
+        """测试表单注入（新增去重逻辑 + 智能筛选）"""
         vulns = []
 
         for field_name in form_data.keys():
+            # ===== 去重检查：跳过已测试的字段 =====
+            field_key = (form_url, field_name)
+            if field_key in self.tested_fields:
+                print(f"{Fore}[-] 跳过重复字段: {field_name}")
+                continue
+            self.tested_fields.add(field_key)
+            # ======================================
+
+            # ===== 智能筛选：只测试相关字段 =====
+            if not self._should_test_param(field_name):
+                print(f"{Fore}[-] 跳过无关字段: {field_name}")
+                continue
+            # ======================================
+
             print(f"{Fore.CYAN}[TEST] 测试表单字段: {field_name}")
 
             for payload in self.payloads:

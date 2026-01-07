@@ -4,6 +4,8 @@ import json
 import time
 from time import sleep
 from typing import Optional, Dict, Any
+
+import requests
 from colorama import Fore, init
 import contextlib
 from datetime import datetime
@@ -20,6 +22,13 @@ try:
     from DVWAlogin import DvwaLogin
 except Exception as e:
     print(f"{Fore.RED}[ERROR] 无法导入DVWA登录模块: {e}")
+    sys.exit(1)
+
+# 导入爬虫模块
+try:
+    from crawler import VulnerabilityCrawler
+except Exception as e:
+    print(f"{Fore.RED}[ERROR] 无法导入爬虫模块: {e}")
     sys.exit(1)
 
 # 将当前目录加入 sys.path
@@ -118,6 +127,67 @@ def _save_report(report: Dict[str, Any], scan_dir: str, filename: str):
         print(f"{Fore.GREEN}[✓] 报告已保存到: {filepath}")
     except Exception as e:
         print(f"{Fore.YELLOW}[WARN] 无法保存报告: {e}")
+
+
+def run_generic_scanner(scanner_module, crawl_results: Dict[str, Any], target_url: str):
+    """运行通用网站扫描器"""
+    try:
+        module_name = scanner_module.__name__
+
+        if module_name == "DvwaSql_scanner":
+            # SQL通用模式使用 NormalSQLScanner
+            ScannerClass = getattr(scanner_module, "NormalSQLScanner", None)
+            if ScannerClass:
+                scanner = ScannerClass(timeout=10)
+                print(f"\n{Fore.CYAN}[INFO] 开始SQL注入扫描...")
+                report = scanner.crawl_and_scan(target_url, max_depth=0)  # 已爬取，深度设为0
+                if report and report.get('vulnerabilities'):
+                    scanner.print_report(report)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    _save_report(report, 'sql_scanner', f"generic_sql_report_{timestamp}.json")
+
+        elif module_name == "DvwaXSSScanner":
+            # XSS通用模式使用 NormalXSSScanner
+            ScannerClass = getattr(scanner_module, "NormalXSSScanner", None)
+            if ScannerClass:
+                scanner = ScannerClass(timeout=10)
+                print(f"\n{Fore.CYAN}[INFO] 开始XSS扫描...")
+                report = scanner.crawl_and_scan(target_url, max_depth=0)
+                if report and report.get('vulnerabilities'):
+                    scanner.print_report(report)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    _save_report(report, 'DvwaXSSScanner', f"generic_xss_report_{timestamp}.json")
+
+        elif module_name == "DvwaCSRFScanner":
+            # CSRF通用模式使用 detect_generic
+            ScannerClass = getattr(scanner_module, "DvwaCSRFScanner", None)
+            if ScannerClass:
+                scanner = ScannerClass(session=None, mode="generic", base_url=target_url)
+                scanner.detect_generic(crawl_results)
+
+        elif module_name == "DvwaCommandInjectionScanner":
+            # 命令注入通用模式
+            ScannerClass = getattr(scanner_module, "DvwaCommandInjectionScanner", None)
+            if ScannerClass:
+                session = requests.Session()
+                session.headers.update({'User-Agent': 'Mozilla/5.0'})
+                scanner = ScannerClass(session, mode="generic", base_url=target_url, timeout=5)
+                scanner.detect_generic(crawl_results)
+
+        elif module_name == "DvwaFileUploadScanner":
+            # 文件上传通用模式
+            ScannerClass = getattr(scanner_module, "DvwaFileUploadScanner", None)
+            if ScannerClass:
+                session = requests.Session()
+                session.headers.update({'User-Agent': 'Mozilla/5.0'})
+                scanner = ScannerClass(session, target_url, mode="generic")
+                scanner.detect(crawl_results)
+
+        else:
+            print(f"{Fore.YELLOW}[WARN] 未知模块: {module_name}")
+
+    except Exception as e:
+        print(f"{Fore.RED}[ERROR] 运行 {scanner_module.__name__} 扫描时出错: {e}")
 
 
 def run_sql(scanner_module, session_info, dvwa_login, scan_mode='menu'):
@@ -366,81 +436,198 @@ def menu():
     print(f"{Fore.CYAN}{'=' * 60}")
 
 
-def main():
-    cfg = config
-    dvwa_url = cfg.get("dvwa_url") or ask_dvwa_url()
-    if not dvwa_url:
-        print(f"{Fore.RED}未提供 DVWA URL，退出")
-        return
+def run_generic_mode():
+    """运行普通网站扫描模式"""
+    print(f"\n{Fore.CYAN}{'=' * 60}")
+    print(f"{Fore.CYAN}      普通网站扫描模式")
+    print(f"{Fore.CYAN}{'=' * 60}")
 
-    auth = login_once(dvwa_url)
-    if not auth:
-        return
+    # 1. 输入目标URL
+    target_url = input(f"{Fore.YELLOW}请输入目标网站URL: ").strip()
+    while not target_url.startswith(('http://', 'https://')):
+        print(f"{Fore.RED}[ERROR] URL必须以http://或https://开头")
+        target_url = input(f"{Fore.YELLOW}请重新输入: ").strip()
 
-    dvwa_login = auth["login_obj"]
-    session_info = auth["session_info"]
+    # 2. 输入爬取深度
+    depth_input = input(f"{Fore.YELLOW}请输入爬取深度 (默认2): ").strip()
+    max_depth = int(depth_input) if depth_input.isdigit() else 2
 
-    # 主循环
+    # 3. 执行爬取
+    print(f"\n{Fore.CYAN}[INFO] 开始爬取网站，深度: {max_depth}")
+    crawler = VulnerabilityCrawler(target_url, max_depth=max_depth)
+    crawler.crawl(target_url)
+    crawl_results = crawler.get_results()
+
+    # 4. 显示爬取统计
+    print(f"\n{Fore.GREEN}[✓] 爬取完成！发现注入点统计:")
+    print(f"    URL参数: {len(crawl_results.get('url_params', []))} 个")
+    print(f"    普通表单: {len(crawl_results.get('forms', []))} 个")
+    print(f"    上传表单: {len(crawl_results.get('upload_forms', []))} 个")
+
+    # 5. 选择扫描器
     while True:
-        menu()
-        choice = input(f"{Fore.YELLOW}请选择扫描项目 (0-6): ").strip()
-        if not choice:
-            continue
+        print(f"\n{Fore.CYAN}{'=' * 60}")
+        print(f"{Fore.CYAN}选择要执行的扫描器")
+        print(f"{Fore.CYAN}{'=' * 60}")
+        print("  1. SQL注入扫描")
+        print("  2. XSS扫描")
+        print("  3. CSRF扫描")
+        print("  4. 命令注入扫描")
+        print("  5. 文件上传扫描")
+        print("  6. 全部扫描")
+        print("  0. 返回上级菜单")
+        print(f"{Fore.CYAN}{'=' * 60}")
+
+        choice = input(f"{Fore.YELLOW}请选择: ").strip()
 
         if choice == "0":
-            print(f"{Fore.CYAN}退出，加纳 ")
             break
 
         elif choice == "1":
             if sql_mod:
-                run_sql(sql_mod, session_info, dvwa_login, scan_mode='menu')
+                run_generic_scanner(sql_mod, crawl_results, target_url)
             else:
-                print(f"{Fore.RED}SQL 模块不可用")
+                print(f"{Fore.RED}SQL模块不可用")
 
         elif choice == "2":
             if xss_mod:
-                run_xss(xss_mod, session_info, dvwa_login)
+                run_generic_scanner(xss_mod, crawl_results, target_url)
             else:
-                print(f"{Fore.RED}XSS 模块不可用")
+                print(f"{Fore.RED}XSS模块不可用")
 
         elif choice == "3":
             if csrf_mod:
-                run_csrf(csrf_mod, session_info, dvwa_login)
+                print(f"\n{Fore.YELLOW}[!] CSRF扫描需要用户交互，请按提示操作")
+                run_generic_scanner(csrf_mod, crawl_results, target_url)
             else:
-                print(f"{Fore.RED}CSRF 模块不可用")
+                print(f"{Fore.RED}CSRF模块不可用")
 
         elif choice == "4":
             if cmdi_mod:
-                run_cmdi(cmdi_mod, session_info, dvwa_login)
+                run_generic_scanner(cmdi_mod, crawl_results, target_url)
             else:
                 print(f"{Fore.RED}命令注入模块不可用")
 
         elif choice == "5":
             if upload_mod:
-                run_upload(upload_mod, session_info, dvwa_login)
+                run_generic_scanner(upload_mod, crawl_results, target_url)
             else:
                 print(f"{Fore.RED}文件上传模块不可用")
 
         elif choice == "6":
-            print(f"\n{Fore.RED}{'=' * 60}")
-            print(f"{Fore.RED} 重要警告：即将执行全模块扫描")
-            print(f"{Fore.RED}{'=' * 60}")
-            print(f"{Fore.YELLOW}CSRF 模块会临时修改 DVWA 登录密码为 'baipi666'")
-            print(f"{Fore.YELLOW}为确保后续扫描正常，密码将**自动回滚**到 'password'")
-            print(f"{Fore.YELLOW}此过程无需手动干预，但请确保您了解该操作")
-            print(f"{Fore.RED}{'=' * 60}")
-
-            confirm = input(f"\n{Fore.CYAN}请输入 'yes' 确认已知晓并继续执行: ").strip().lower()
-
-            if confirm == 'yes':
-                print(f"{Fore.GREEN}[✓] 确认成功，开始执行全模块扫描")
-                run_all(session_info, dvwa_login)
-            else:
-                print(f"{Fore.YELLOW}[!] 已取消全模块扫描，返回主菜单")
-                continue
+            print(f"\n{Fore.CYAN}[INFO] 开始执行全部扫描...")
+            for module in [sql_mod, xss_mod, csrf_mod, cmdi_mod, upload_mod]:
+                if module:
+                    run_generic_scanner(module, crawl_results, target_url)
+                else:
+                    print(f"{Fore.YELLOW}[SKIP] 模块不可用，跳过")
 
         else:
-            print(f"{Fore.YELLOW}无效选项，请输入 0-6")
+            print(f"{Fore.YELLOW}无效选项")
+
+
+def main():
+    """主程序入口"""
+    print(f"\n{Fore.CYAN}{'=' * 60}")
+    print(f"{Fore.CYAN}      WEB漏洞扫描器")
+    print(f"{Fore.CYAN}{'=' * 60}")
+
+    # 第一步：选择扫描模式
+    print(f"\n{Fore.CYAN}请选择扫描模式:")
+    print("  1. 扫描DVWA靶场")
+    print("  2. 扫描普通网站")
+    print("  0. 退出")
+    print(f"{Fore.CYAN}{'=' * 60}")
+
+    mode_choice = input(f"{Fore.YELLOW}请选择: ").strip()
+
+    if mode_choice == "0":
+        print(f"{Fore.CYAN}退出程序")
+        return
+
+    elif mode_choice == "1":
+        # DVWA模式：完全保留原有流程
+        cfg = config
+        dvwa_url = cfg.get("dvwa_url") or ask_dvwa_url()
+        if not dvwa_url:
+            print(f"{Fore.RED}未提供 DVWA URL，退出")
+            return
+
+        auth = login_once(dvwa_url)
+        if not auth:
+            return
+
+        dvwa_login = auth["login_obj"]
+        session_info = auth["session_info"]
+
+        # 主循环
+        while True:
+            menu()
+            choice = input(f"{Fore.YELLOW}请选择扫描项目 (0-6): ").strip()
+            if not choice:
+                continue
+
+            if choice == "0":
+                print(f"{Fore.CYAN}退出，加纳 ")
+                break
+
+            elif choice == "1":
+                if sql_mod:
+                    run_sql(sql_mod, session_info, dvwa_login, scan_mode='menu')
+                else:
+                    print(f"{Fore.RED}SQL 模块不可用")
+
+            elif choice == "2":
+                if xss_mod:
+                    run_xss(xss_mod, session_info, dvwa_login)
+                else:
+                    print(f"{Fore.RED}XSS 模块不可用")
+
+            elif choice == "3":
+                if csrf_mod:
+                    run_csrf(csrf_mod, session_info, dvwa_login)
+                else:
+                    print(f"{Fore.RED}CSRF 模块不可用")
+
+            elif choice == "4":
+                if cmdi_mod:
+                    run_cmdi(cmdi_mod, session_info, dvwa_login)
+                else:
+                    print(f"{Fore.RED}命令注入模块不可用")
+
+            elif choice == "5":
+                if upload_mod:
+                    run_upload(upload_mod, session_info, dvwa_login)
+                else:
+                    print(f"{Fore.RED}文件上传模块不可用")
+
+            elif choice == "6":
+                print(f"\n{Fore.RED}{'=' * 60}")
+                print(f"{Fore.RED} 重要警告：即将执行全模块扫描")
+                print(f"{Fore.RED}{'=' * 60}")
+                print(f"{Fore.YELLOW}CSRF 模块会临时修改 DVWA 登录密码为 'baipi666'")
+                print(f"{Fore.YELLOW}为确保后续扫描正常，密码将**自动回滚**到 'password'")
+                print(f"{Fore.YELLOW}此过程无需手动干预，但请确保您了解该操作")
+                print(f"{Fore.RED}{'=' * 60}")
+
+                confirm = input(f"\n{Fore.CYAN}请输入 'yes' 确认已知晓并继续执行: ").strip().lower()
+
+                if confirm == 'yes':
+                    print(f"{Fore.GREEN}[✓] 确认成功，开始执行全模块扫描")
+                    run_all(session_info, dvwa_login)
+                else:
+                    print(f"{Fore.YELLOW}[!] 已取消全模块扫描，返回主菜单")
+                    continue
+
+            else:
+                print(f"{Fore.YELLOW}无效选项，请输入 0-6")
+
+    elif mode_choice == "2":
+        # 普通网站模式
+        run_generic_mode()
+
+    else:
+        print(f"{Fore.RED}无效选项")
 
 
 if __name__ == "__main__":
