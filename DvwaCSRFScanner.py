@@ -327,10 +327,6 @@ class DvwaCSRFScanner:
                 print(f"{Fore.MAGENTA}绕过: {vuln['bypass']}")
             print(f"{Fore.GREEN}[POC] {vuln['poc_file']}")
 
-        print(f"\n{Fore.CYAN}修复建议:")
-        for i, rec in enumerate(report['recommendations'], 1):
-            print(f"  {i}. {rec}")
-
     def scan_dvwa_csrf(self) -> Dict[str, Any]:
         if not self.session or not self.base_url:
             print(f"{Fore.RED}[✗] 未初始化会话")
@@ -380,58 +376,193 @@ class DvwaCSRFScanner:
 
         return self.generate_report()
 
+    def try_auto_csrf_validation(self, form_info: Dict) -> Dict:
+        """
+        自动 CSRF 验证（不依赖人工）
+        核心思想：
+         构造一次普通请求
+         构造一次“跨站”请求（伪造 Origin / Referer）
+         如果服务端都接受 → 高可信 CSRF 漏洞
+        """
+        url = form_info['url']
+        method = form_info['method'].upper()
+        data = form_info.get("form_data", {})
+
+        headers_normal = {
+            "User-Agent": "Mozilla/5.0"
+        }
+
+        headers_cross = {
+            "User-Agent": "Mozilla/5.0",
+            "Origin": "http://attacker.com",
+            "Referer": "http://attacker.com/poc.html"
+        }
+
+        try:
+            session = getattr(self, "session", None) or requests
+
+            r1 = session.request(method, url, data=data, headers=headers_normal, timeout=8)
+            r2 = session.request(method, url, data=data, headers=headers_cross, timeout=8)
+
+            # 如果登录失效 → 无法自动验证
+            if r1.status_code in (401, 403) or "login" in r1.url.lower():
+                return {"auto_validated": False, "reason": "需要登录，无法自动验证"}
+
+            # 服务端拒绝跨站 → 安全
+            if r2.status_code in (401, 403):
+                return {"auto_validated": False, "reason": "服务器拒绝跨站请求"}
+
+            # 若两次结果都 200 且相似，则认为**高可信 CSRF 漏洞**
+            if r1.status_code == 200 and r2.status_code == 200:
+                if abs(len(r1.text) - len(r2.text)) < 1000:
+                    return {
+                        "auto_validated": True,
+                        "confirmed": True,
+                        "evidence": "目标接口未校验 Origin/Referer，跨站请求被接受"
+                    }
+
+            return {"auto_validated": False, "reason": "无法确认是否真正被利用"}
+
+        except Exception as e:
+            return {"auto_validated": False, "reason": f"请求失败：{e}"}
+
+    def assess_csrf_risk(self, form_info: Dict) -> Dict[str, Any]:
+        """
+        CSRF 风险评估（通用模式）
+        返回：风险等级 + 评分 + 原因
+        """
+        score = 0
+        reasons = []
+
+        url = form_info['url']
+        method = form_info.get('method', 'POST').upper()
+        fields = list(form_info.get('form_data', {}).keys())
+
+        path = urlparse(url).path.lower()
+
+        # 敏感路径
+        if any(k in path for k in ['password', 'delete', 'remove', 'update', 'edit']):
+            score += 3
+            reasons.append("敏感操作路径")
+
+        # 敏感字段
+        for f in fields:
+            if any(k in f.lower() for k in ['pass', 'pwd', 'email', 'role']):
+                score += 2
+                reasons.append(f"敏感字段: {f}")
+                break
+
+        # CSRF Token 检测
+        token_fields = ['csrf', 'token', 'nonce', '_token']
+        has_token = any(any(t in f.lower() for t in token_fields) for f in fields)
+        if has_token:
+            score -= 3
+            reasons.append("检测到 CSRF Token")
+        else:
+            score += 3
+            reasons.append("未检测到 CSRF Token")
+
+        # GET 请求 → 稍高风险
+        if method == 'GET':
+            score += 1
+            reasons.append("使用 GET 提交")
+
+        # 非登录接口
+        if not any(k in path for k in ['login', 'signin']):
+            score += 1
+
+        # 风险等级
+        if score >= 7:
+            level = "HIGH"
+        elif score >= 4:
+            level = "MEDIUM"
+        else:
+            level = "LOW"
+
+        return {
+            "url": url,
+            "method": method,
+            "fields": fields,
+            "risk_score": score,
+            "risk_level": level,
+            "reasons": list(set(reasons))
+        }
+
     def detect_generic(self, crawl_results: Dict[str, Any]):
         print(f"\n{Fore.CYAN}{'=' * 60}")
-        print(f"{Fore.CYAN}通用 CSRF 漏洞检测")
+        print(f"{Fore.CYAN}通用网站 CSRF 自动 + 半自动检测")
         print(f"{Fore.CYAN}{'=' * 60}")
 
-        forms = crawl_results.get('forms', [])
+        forms = crawl_results.get("forms", [])
         if not forms:
-            print(f"{Fore.YELLOW}[!] 未从爬虫结果中发现表单")
+            print(f"{Fore.YELLOW}[!] 未发现任何表单，无法检测 CSRF")
             return
 
-        # 去重：按表单URL去重
-        unique_forms = []
-        seen_urls = set()
-        for form in forms:
-            url = form.get('url')
-            if url and url not in seen_urls:
-                seen_urls.add(url)
-                unique_forms.append(form)
+        # ======= 去重逻辑：避免重复检测 =======
+        unique = {}
+        for f in forms:
+            url = f.get("url", "")
+            method = f.get("method", "POST").upper()
+            fields = tuple(sorted(f.get("form_data", {}).keys()))
+            key = (url, method, fields)
+            if key not in unique:
+                unique[key] = f
 
-        forms = unique_forms
-
-        print(f"\n{Fore.YELLOW}[i] 请提供测试账户（用于登录目标网站）")
-        test_user = input("用户名: ").strip()
-        test_pass = input("密码: ").strip()
-
-        print(f"\n{Fore.CYAN}[→] 正在登录目标网站...")
-        victim_session = requests.Session()
-        victim_session.headers.update({'User-Agent': 'Mozilla/5.0'})
-
-        login_url = urljoin(self.base_url, "/login")
-        login_data = {
-            "username": test_user, "user": test_user,
-            "password": test_pass, "pass": test_pass,
-            "login": "Login", "submit": "Submit"
-        }
-        resp = victim_session.post(login_url, data=login_data, timeout=10)
-
-        if resp.status_code != 200 or "login" in resp.url.lower():
-            print(f"{Fore.YELLOW}[!] 自动登录可能失败，请检查账户是否正确")
-
-        print(f"{Fore.GREEN}[✓] 受害者会话已建立")
+        forms = list(unique.values())
+        print(f"{Fore.CYAN}[i] CSRF 检测表单数量（去重后）: {len(forms)}")
 
         results = []
-        for idx, form in enumerate(forms, 1):
-            print(f"\n{Fore.BLUE}{'─' * 60}")
-            print(f"{Fore.BLUE}测试进度: [{idx}/{len(forms)}]")
-            print(f"{Fore.BLUE}表单URL: {form['url']}")
 
-            result = self._test_csrf_manual(victim_session, form)
-            results.append(result)
+        for form in forms:
+            # ================= 风险评估 =================
+            risk = self.assess_csrf_risk(form)
 
+            print(f"\n{Fore.WHITE}检测表单: {risk['url']}")
+            print(
+                f"方法: {risk['method']}  字段: {risk['fields']}  风险评分: {risk['risk_score']} ({risk['risk_level']})")
+
+            # 仅对中高风险尝试自动验证
+            if risk["risk_level"] in ("HIGH", "MEDIUM"):
+
+                # ================= 自动验证 =================
+                auto = self.try_auto_csrf_validation(form)
+
+                if auto.get("auto_validated") and auto.get("confirmed"):
+                    print(f"{Fore.RED}[✓] 自动确认存在 CSRF 漏洞！")
+                    print(f"{Fore.RED}证据: {auto['evidence']}")
+
+                    risk["verification"] = "confirmed"
+                    risk["auto_reason"] = auto["evidence"]
+                    results.append(risk)
+                    continue
+
+                # 自动验证失败 —— 输出原因 + SameSite 提示
+                reason = auto.get("reason", "未知原因")
+                print(f"{Fore.YELLOW}[~] 无法自动确认: {reason}")
+                print(f"{Fore.BLUE}[i] 说明: 真实网站通常启用 SameSite Cookie、"
+                      f"Origin/Referer 校验或仅接受同源请求，这可能导致跨站 POST 被浏览器拦截，"
+                      f"从而无法通过脚本直接验证。")
+
+            # ================= 半自动（生成 POC） =================
+            poc = self.generate_csrf_poc(form)
+            print(f"{Fore.CYAN}[+] 已生成 CSRF POC，请人工验证: {poc}")
+
+            risk["verification"] = "need_manual_verify"
+            risk["poc_file"] = poc
+            results.append(risk)
+
+        # ================= 保存报告 =================
         self.save_generic_report(results)
+
+    def generate_csrf_poc(self, form: Dict) -> str:
+        """
+        兼容 detect_generic 调用
+        """
+        target_url = form["url"]
+        method = form.get("method", "POST").upper()
+        form_data = form.get("form_data", {})
+
+        return self.generate_poc(target_url, form_data, method, mode="generic")
 
     def _test_csrf_manual(self, victim_session, form: Dict) -> Dict:
         target_url = form['url']
@@ -535,15 +666,39 @@ class DvwaCSRFScanner:
     def save_generic_report(self, results: List[Dict]):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+        confirmed = sum(1 for r in results if r.get("verification") == "confirmed")
+        need_manual = sum(1 for r in results if r.get("verification") == "need_manual_verify")
+
+        high = sum(1 for r in results if r.get("risk_level") == "HIGH")
+        medium = sum(1 for r in results if r.get("risk_level") == "MEDIUM")
+        low = sum(1 for r in results if r.get("risk_level") == "LOW")
+
         report = {
-            "mode": "generic",
+            "mode": "generic-auto+manual",
             "target_base": self.base_url,
             "scan_time": timestamp,
+
             "summary": {
-                "total_forms": len(results)
+                "total_forms": len(results),
+                "confirmed_vulnerable": confirmed,
+                "need_manual_verify": need_manual,
+                "risk_distribution": {
+                    "HIGH": high,
+                    "MEDIUM": medium,
+                    "LOW": low
+                }
             },
+
             "results": results,
-            "notes": "此报告中的CSRF漏洞需要手动验证，请按POC文件的说明操作"
+
+            "notes": (
+                "本报告基于自动验证 + 半自动验证模型：\n"
+                "verification = confirmed：表示工具已自动确认目标接口可被跨站请求接受，"
+                "且未发现有效 CSRF 防护，具有较高可信度，通常可视为真实 CSRF 漏洞；\n"
+                "verification = need_manual_verify：表示存在较高/中等风险，但无法完全自动确认，"
+                "已生成 POC 文件，请人工在登录状态下访问 POC 并确认服务器状态是否真的发生变化；\n"
+                "注意：CSRF 最终认定标准以“是否成功跨站修改服务器状态”为准。"
+            )
         }
 
         filename = f"csrf_report_generic_{timestamp}.json"

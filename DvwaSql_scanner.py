@@ -620,18 +620,18 @@ class NormalSQLScanner:
             # ===== 去重检查：跳过已测试的参数 =====
             param_key = (base_url, param_name)
             if param_key in self.tested_params:
-                print(f"{Fore}[-] 跳过重复参数: {param_name}")
+                print(f"[-] 跳过重复参数: {param_name}")
                 continue
             self.tested_params.add(param_key)
             # ======================================
 
             # ===== 智能筛选：只测试相关参数 =====
             if not self._should_test_param(param_name):
-                print(f"{Fore}[-] 跳过无关参数: {param_name}")
+                print(f"[-] 跳过无关参数: {param_name}")
                 continue
             # ======================================
 
-            print(f"{Fore.CYAN}[TEST] 测试参数: {param_name}")
+            print(f"[TEST] 测试参数: {param_name}")
             original_value = all_params.get(param_name, [""])[0]
 
             for payload in self.payloads:
@@ -669,14 +669,14 @@ class NormalSQLScanner:
             # ===== 去重检查：跳过已测试的字段 =====
             field_key = (form_url, field_name)
             if field_key in self.tested_fields:
-                print(f"{Fore}[-] 跳过重复字段: {field_name}")
+                print(f"[-] 跳过重复字段: {field_name}")
                 continue
             self.tested_fields.add(field_key)
             # ======================================
 
             # ===== 智能筛选：只测试相关字段 =====
             if not self._should_test_param(field_name):
-                print(f"{Fore}[-] 跳过无关字段: {field_name}")
+                print(f"[-] 跳过无关字段: {field_name}")
                 continue
             # ======================================
 
@@ -861,10 +861,6 @@ def print_report(report: Dict[str, Any], scan_type: str):
         if 'first_user' in data:
             user = data['first_user']
             print(f"  {Fore.GREEN}第一个用户: {user.get('username', 'N/A')} / {user.get('password', 'N/A')}")
-
-    print(f"\n{Fore.CYAN}安全建议:")
-    for i, recommendation in enumerate(report['recommendations'], 1):
-        print(f"  {i}. {recommendation}")
 
 
 def main():
