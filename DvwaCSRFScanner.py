@@ -1,4 +1,3 @@
-# DvwaCSRFScanner.py - CSRF漏洞扫描器（支持DVWA+通用网站）
 import os
 import sys
 import time
@@ -26,35 +25,23 @@ init(autoreset=True)
 
 class DvwaCSRFScanner:
     def __init__(self, session, mode="dvwa", base_url=None, original_password="password"):
-        """
-        CSRF漏洞扫描器
-        :param session: requests会话对象
-        :param mode: "dvwa" 或 "generic"
-        :param base_url: 目标网站基础URL
-        :param original_password: DVWA原始密码（用于回滚）
-        """
         self.session = session
         self.mode = mode
         self.base_url = base_url.rstrip('/') if base_url else None
-
-        # ===== DVWA专用配置（完全保留原逻辑） =====
         self.original_password = original_password
         self.current_password = original_password
         self.should_rollback = True
         self.force_rollback = False
         self.timeout = 10
 
-        # DVWA固定目标
         if mode == "dvwa":
             self.target_url = urljoin(self.base_url, "vulnerabilities/csrf/")
         else:
             self.target_url = None
 
-        # 报告目录
         self.report_dir = os.path.join("scan_result", "DvwaCSRFScanner")
         os.makedirs(self.report_dir, exist_ok=True)
 
-        # 结果存储
         self.results = {
             'target_url': None,
             'vulnerabilities': [],
@@ -63,9 +50,7 @@ class DvwaCSRFScanner:
             'csrf_points_found': 0
         }
 
-    # ===== 以下所有方法完全保留原DVWA逻辑 =====
     def cleanup(self):
-        """根据用户选择执行最终清理 - 原逻辑完全保留"""
         if self.should_rollback and self.current_password != self.original_password:
             print(f"\n{Fore.YELLOW}[*] 执行最终回滚...")
             self._rollback_password()
@@ -73,7 +58,6 @@ class DvwaCSRFScanner:
             print(f"\n{Fore.GREEN}[*] 按用户选择，密码保持为: {self.current_password}")
 
     def _rollback_password(self, max_retries=5):
-        """自动回滚密码 - 原逻辑完全保留"""
         if not self.session or not self.base_url:
             return False
 
@@ -140,7 +124,6 @@ class DvwaCSRFScanner:
             return False
 
     def setup_session(self, dvwa_login_instance: DvwaLogin) -> bool:
-        """设置会话 - 原逻辑完全保留"""
         try:
             session_info = dvwa_login_instance.get_session_info()
             if not session_info or 'session' not in session_info:
@@ -156,7 +139,6 @@ class DvwaCSRFScanner:
             return False
 
     def detect_dvwa_level(self) -> str:
-        """检测DVWA安全等级 - 原逻辑完全保留"""
         try:
             response = self.session.get(f"{self.base_url}/security.php", timeout=10)
             if 'low' in response.text:
@@ -171,7 +153,6 @@ class DvwaCSRFScanner:
 
     def send_request(self, url: str, method: str = 'GET', data: Dict = None, params: Dict = None,
                      headers: Dict = None, json_data: Any = None) -> Tuple[bool, Optional[requests.Response]]:
-        """发送请求 - 原逻辑完全保留"""
         headers = headers or {}
         try:
             resp = self.session.request(
@@ -190,7 +171,6 @@ class DvwaCSRFScanner:
             return False, None
 
     def extract_csrf_form(self) -> Dict[str, Any]:
-        """提取CSRF表单 - 原逻辑完全保留"""
         target_url = f"{self.base_url}/vulnerabilities/csrf/"
         success, response = self.send_request(target_url)
         if not success or not response:
@@ -218,7 +198,6 @@ class DvwaCSRFScanner:
         return {'action': action, 'method': method, 'inputs': inputs}
 
     def test_csrf_vulnerability(self, level: str) -> Dict[str, Any]:
-        """CSRF漏洞测试 - 原逻辑完全保留"""
         form = self.extract_csrf_form()
         if not form:
             return {'vulnerable': False, 'reason': '未找到CSRF表单'}
@@ -276,7 +255,6 @@ class DvwaCSRFScanner:
             return {'vulnerable': False, 'reason': f'异常: {e}'}
 
     def generate_poc_html(self, vuln):
-        """生成POC HTML - 原逻辑完全保留"""
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         random_str = ''.join(random.choices(string.ascii_lowercase, k=6))
         filename = f"csrf_poc_{vuln['level']}_{timestamp}_{random_str}.html"
@@ -303,7 +281,6 @@ class DvwaCSRFScanner:
         return abs_filename
 
     def generate_report(self) -> Dict[str, Any]:
-        """生成报告 - 原逻辑完全保留"""
         return {
             'scan_summary': {
                 'target_url': self.results['target_url'],
@@ -325,7 +302,6 @@ class DvwaCSRFScanner:
         }
 
     def print_report(self, report: Dict[str, Any]):
-        """打印报告 - 原逻辑完全保留"""
         summary = report['scan_summary']
 
         print(f"\n{Fore.YELLOW}{'=' * 70}")
@@ -355,9 +331,7 @@ class DvwaCSRFScanner:
         for i, rec in enumerate(report['recommendations'], 1):
             print(f"  {i}. {rec}")
 
-    # ===== DVWA主扫描入口 - 原逻辑完全保留 =====
     def scan_dvwa_csrf(self) -> Dict[str, Any]:
-        """DVWA主扫描入口 - 原逻辑完全保留"""
         if not self.session or not self.base_url:
             print(f"{Fore.RED}[✗] 未初始化会话")
             return {}
@@ -368,7 +342,6 @@ class DvwaCSRFScanner:
         self.results['target_url'] = self.base_url
         self.results['scan_time'] = time.strftime('%Y-%m-%d %H:%M:%S')
 
-        # 询问是否回滚密码
         if self.force_rollback:
             print(f"\n{Fore.YELLOW}[*] 强制模式：自动回滚密码")
             self.should_rollback = True
@@ -394,7 +367,6 @@ class DvwaCSRFScanner:
 
         print(f"\n{Fore.YELLOW}[扫描目标: {self.base_url}/vulnerabilities/csrf/]")
 
-        # 测试漏洞
         vuln_result = self.test_csrf_vulnerability(level)
 
         if vuln_result.get('vulnerable'):
@@ -402,18 +374,13 @@ class DvwaCSRFScanner:
             self.results['csrf_points_found'] = 1
             self.results['forms_tested'] = 1
 
-            # 根据用户选择决定是否回滚
             if self.should_rollback:
                 print(f"\n{Fore.CYAN}[*] 正在回滚密码...")
                 self._rollback_password()
 
         return self.generate_report()
 
-    # ===== 通用模式 - 全新实现 =====
     def detect_generic(self, crawl_results: Dict[str, Any]):
-        """
-        通用CSRF检测 - 双会话真实测试
-        """
         print(f"\n{Fore.CYAN}{'=' * 60}")
         print(f"{Fore.CYAN}通用 CSRF 漏洞检测")
         print(f"{Fore.CYAN}{'=' * 60}")
@@ -423,17 +390,25 @@ class DvwaCSRFScanner:
             print(f"{Fore.YELLOW}[!] 未从爬虫结果中发现表单")
             return
 
-        # 用户输入测试账户
+        # 去重：按表单URL去重
+        unique_forms = []
+        seen_urls = set()
+        for form in forms:
+            url = form.get('url')
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique_forms.append(form)
+
+        forms = unique_forms
+
         print(f"\n{Fore.YELLOW}[i] 请提供测试账户（用于登录目标网站）")
         test_user = input("用户名: ").strip()
         test_pass = input("密码: ").strip()
 
-        # 受害者会话：登录目标网站
         print(f"\n{Fore.CYAN}[→] 正在登录目标网站...")
         victim_session = requests.Session()
         victim_session.headers.update({'User-Agent': 'Mozilla/5.0'})
 
-        # 尝试自动登录（常见登录表单）
         login_url = urljoin(self.base_url, "/login")
         login_data = {
             "username": test_user, "user": test_user,
@@ -447,108 +422,49 @@ class DvwaCSRFScanner:
 
         print(f"{Fore.GREEN}[✓] 受害者会话已建立")
 
-        # 要求用户提供验证接口
-        print(f"\n{Fore.YELLOW}[?] 请输入一个用于验证测试结果的接口")
-        verify_url = input("验证接口URL（如个人信息页）: ").strip()
-        if not verify_url.startswith('http'):
-            verify_url = urljoin(self.base_url, verify_url)
-
-        # 扫描每个表单
         results = []
         for idx, form in enumerate(forms, 1):
             print(f"\n{Fore.BLUE}{'─' * 60}")
             print(f"{Fore.BLUE}测试进度: [{idx}/{len(forms)}]")
             print(f"{Fore.BLUE}表单URL: {form['url']}")
 
-            result = self._test_csrf_real(victim_session, form, verify_url)
+            result = self._test_csrf_manual(victim_session, form)
             results.append(result)
 
-            # 清理测试数据（如果修改了密码等敏感信息）
-            if result.get('vulnerable') and 'password' in str(form.get('form_data', {})):
-                print(f"{Fore.YELLOW}[!] 检测到密码修改，请在测试后手动恢复")
-
-        # 保存报告
         self.save_generic_report(results)
 
-    def _test_csrf_real(self, victim_session, form: Dict, verify_url: str) -> Dict:
-        """
-        真实的CSRF测试（双会话 + 手动跨站）
-        """
+    def _test_csrf_manual(self, victim_session, form: Dict) -> Dict:
         target_url = form['url']
         method = form.get('method', 'POST').upper()
 
-        print(f"{Fore.CYAN}[→] 正在获取当前数据...")
-        try:
-            # 步骤1：记录原始数据（用于对比）
-            resp_before = victim_session.get(verify_url, timeout=10)
-            original_data = resp_before.text[:500]  # 取前500字符作为参考
-        except:
-            original_data = ""
-            print(f"{Fore.YELLOW}[!] 无法获取原始数据，将依赖响应状态判断")
-
-        # 步骤2：生成测试数据和POC
         test_data = self._generate_test_payload(form.get('form_data', {}))
         poc_file = self.generate_poc(target_url, test_data, method, mode="generic")
 
-        print(f"{Fore.GREEN}[✓] POC文件已生成: {poc_file}")
-
-        # 步骤3：引导用户手动跨站测试
         print(f"\n{Fore.YELLOW}{'=' * 60}")
-        print(f"{Fore.YELLOW}⚠️  关键测试步骤")
+        print(f"{Fore.YELLOW}测试步骤")
         print(f"{Fore.YELLOW}{'=' * 60}")
         print(f"{Fore.CYAN}1. 在浏览器中登录目标网站（保持登录状态）")
         print(f"{Fore.CYAN}2. 在同浏览器的**新标签页**打开: file://{poc_file}")
-        print(f"{Fore.CYAN}3. 观察页面是否显示'searched for: _csrf_test'")
-        print(f"{Fore.CYAN}4. 等待5秒后，程序将自动验证结果")
-        print(f"{Fore.YELLOW}{'=' * 60}\n")
-
-        input(f"{Fore.YELLOW}按回车键开始自动验证...")
-
-        # 步骤4：自动验证结果
-        time.sleep(5)
-        try:
-            resp_after = victim_session.get(verify_url, timeout=10)
-
-            # 简单判断：如果响应内容有变化，可能成功了
-            if resp_after.text[:500] != original_data:
-                print(f"{Fore.RED}[!!] 数据发生变化，可能存在CSRF漏洞！")
-
-                # 额外检查：看是否有成功提示
-                success_kw = ['success', '成功', 'updated', '已更新']
-                if any(kw in resp_after.text.lower() for kw in success_kw):
-                    vulnerable = True
-                    message = "检测到CSRF漏洞，数据被成功修改"
-                else:
-                    vulnerable = False
-                    message = "数据有变化但无成功提示，需手动确认"
-            else:
-                print(f"{Fore.GREEN}[✓] 数据未发生变化，未发现CSRF漏洞")
-                vulnerable = False
-                message = "验证通过，CSRF保护正常"
-
-        except Exception as e:
-            print(f"{Fore.YELLOW}[!] 验证失败: {e}")
-            vulnerable = False
-            message = f"验证异常: {e}"
+        print(f"{Fore.CYAN}3. 观察页面是否显示'CSRF攻击已执行'")
+        print(f"{Fore.CYAN}4. 手动检查目标网站数据是否被修改")
+        print(f"{Fore.YELLOW}{'=' * 60}")
+        print(f"{Fore.MAGENTA}[!] 请手动确认后，在报告中记录结果")
 
         return {
             "url": target_url,
             "method": method,
-            "vulnerable": vulnerable,
+            "vulnerable": None,
             "poc_file": poc_file,
-            "message": message,
+            "message": "需手动验证CSRF POC有效性",
             "test_data": test_data
         }
 
     def _generate_test_payload(self, form_data: Dict) -> Dict:
-        """
-        生成测试payload（简化版）
-        """
         payload = {}
         for key, value in form_data.items():
             if isinstance(value, str):
                 if 'password' in key.lower():
-                    payload[key] = 'TestCSRF123!'  # 符合复杂度要求的测试密码
+                    payload[key] = 'TestCSRF123!'
                 elif 'email' in key.lower():
                     payload[key] = 'csrf_test_' + str(random.randint(1000, 9999)) + '@example.com'
                 elif 'username' in key.lower() or 'name' in key.lower():
@@ -560,17 +476,12 @@ class DvwaCSRFScanner:
         return payload
 
     def generate_poc(self, target_url: str, form_data: Dict, method: str, mode="dvwa") -> str:
-        """
-        统一POC生成器（支持DVWA和通用模式）
-        """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         random_str = ''.join(random.choices(string.ascii_lowercase, k=6))
 
         if mode == "dvwa":
-            # DVWA模式：保持原有命名
             filename = f"csrf_poc_{mode}_{timestamp}_{random_str}.html"
         else:
-            # 通用模式：更清晰的命名
             parsed = urlparse(target_url)
             path_name = parsed.path.replace('/', '_').strip('_')[:20]
             filename = f"csrf_poc_generic_{path_name}_{timestamp}_{random_str}.html"
@@ -584,7 +495,7 @@ class DvwaCSRFScanner:
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>CSRF POC - {mode.upper()}</title>
+    <title>CSRF POC - GET请求</title>
 </head>
 <body>
     <h2>CSRF POC - GET请求</h2>
@@ -603,7 +514,7 @@ class DvwaCSRFScanner:
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>CSRF POC - {mode.upper()}</title>
+    <title>CSRF POC - POST请求</title>
 </head>
 <body>
     <h2>CSRF POC - POST请求</h2>
@@ -622,9 +533,6 @@ class DvwaCSRFScanner:
         return poc_path
 
     def save_generic_report(self, results: List[Dict]):
-        """
-        保存通用模式报告
-        """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         report = {
@@ -632,11 +540,10 @@ class DvwaCSRFScanner:
             "target_base": self.base_url,
             "scan_time": timestamp,
             "summary": {
-                "total_forms": len(results),
-                "vulnerable_forms": sum(1 for r in results if r.get('vulnerable')),
-                "safe_forms": sum(1 for r in results if not r.get('vulnerable'))
+                "total_forms": len(results)
             },
-            "results": results
+            "results": results,
+            "notes": "此报告中的CSRF漏洞需要手动验证，请按POC文件的说明操作"
         }
 
         filename = f"csrf_report_generic_{timestamp}.json"
@@ -647,30 +554,19 @@ class DvwaCSRFScanner:
 
         print(f"\n{Fore.GREEN}[✓] 通用模式报告已保存: {report_path}")
 
-        # 控制台总结
-        print(f"\n{Fore.BLUE}{'=' * 60}")
-        print(f"{Fore.BLUE}扫描总结")
-        print(f"{Fore.BLUE}{'=' * 60}")
-        print(f"{Fore.CYAN}测试表单数: {len(results)}")
-        print(f"{Fore.RED}可疑漏洞: {report['summary']['vulnerable_forms']}")
-        print(f"{Fore.GREEN}安全表单: {report['summary']['safe_forms']}")
-        print(f"{Fore.BLUE}{'=' * 60}")
-
 
 def main():
-    """交互式主函数"""
     print("=" * 60)
     print("    CSRF漏洞扫描程序")
     print("=" * 60)
 
     print("\n选择目标类型:")
     print("1. DVWA (固定路径)")
-    print("2. 其他网站 (真实CSRF测试)")
+    print("2. 其他网站 (生成POC后手动验证)")
 
     choice = input("\n请输入选项 (1/2): ").strip()
 
     if choice == "1":
-        # ===== DVWA模式：完全保留原流程 =====
         url = input("请输入 DVWA 首页 URL: ").strip()
         if not url:
             print(f"{Fore.RED}[✗] URL 不能为空")
@@ -694,12 +590,10 @@ def main():
             original_password="password"
         )
 
-        # 使用try-finally确保清理
         try:
             report = scanner.scan_dvwa_csrf()
             scanner.print_report(report)
 
-            # 验证回滚
             if scanner.should_rollback:
                 print(f"\n{Fore.YELLOW}[*] 验证回滚结果...")
                 test_login = DvwaLogin()
@@ -708,7 +602,6 @@ def main():
                 else:
                     print(f"{Fore.RED}[✗] 验证失败：密码未正确回滚！")
 
-            # 保存报告
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             report_path = os.path.join(scanner.report_dir, f"dvwa_csrf_report_{timestamp}.json")
             with open(report_path, 'w', encoding='utf-8') as f:
@@ -719,7 +612,6 @@ def main():
             scanner.cleanup()
 
     elif choice == "2":
-        # ===== 通用模式：真实CSRF测试 =====
         url = input("请输入目标网站 URL: ").strip()
         depth_input = input("请输入爬取深度 (默认2): ").strip()
         crawl_depth = int(depth_input) if depth_input.isdigit() else 2
@@ -731,7 +623,7 @@ def main():
 
         print(f"{Fore.GREEN}[✓] 爬取完成，发现 {len(crawl_results.get('forms', []))} 个表单")
 
-        scanner = DvwaCSRFScanner(None, mode="generic", base_url=url)  # session会在detect_generic里创建
+        scanner = DvwaCSRFScanner(None, mode="generic", base_url=url)
         scanner.detect_generic(crawl_results)
 
     else:
